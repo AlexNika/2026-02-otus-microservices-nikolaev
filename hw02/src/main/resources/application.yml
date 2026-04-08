@@ -1,0 +1,14 @@
+server:
+  port: 8000
+  error:
+    whitelabel:
+      enabled: false
+spring:
+  application:
+    name: HW02App - Docker
+  messages:
+    encoding: UTF-8
+logging:
+  level:
+    root: INFO
+    ru.otus.hw: DEBUG

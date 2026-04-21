@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: otusapp
+  labels:
+    app: otusapp
+spec:
+  selector:
+    app: otusapp
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8000
+  type: ClusterIP

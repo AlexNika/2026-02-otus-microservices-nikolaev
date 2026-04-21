@@ -1,0 +1,14 @@
+server:
+  port: 8000
+  error:
+    whitelabel:
+      enabled: true
+spring:
+  application:
+    name: HW03App - Kubernetes
+  messages:
+    encoding: UTF-8
+logging:
+  level:
+    root: INFO
+    ru.otus.hw: DEBUG

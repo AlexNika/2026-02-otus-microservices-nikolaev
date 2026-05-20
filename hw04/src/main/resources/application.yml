@@ -1,0 +1,47 @@
+server:
+  port: 8000
+  error:
+    whitelabel:
+      enabled: true
+  compression:
+    enabled: true
+    min-response-size: 2KB
+  ssl:
+    enabled: false
+  max-http-request-header-size: 8KB
+spring:
+  servlet:
+    multipart:
+      max-request-size: 10MB
+  datasource:
+    driver-class-name: org.h2.Driver
+    password: ''
+    username: sa
+    url: jdbc:h2:mem:hw04db
+  flyway:
+    enabled: true
+    baseline-on-migrate: true
+    baseline-version: '1'
+  jpa:
+    generate-ddl: false
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate:
+        format_sql: true
+    open-in-view: true
+  application:
+    name: HW04App - Helm
+  messages:
+    encoding: UTF-8
+springdoc:
+  swagger-ui:
+    path: /swagger-ui.html
+  api-docs:
+    path: /v3/api-docs
+  default-produces-media-type: application/json
+  default-consumes-media-type: application/json
+logging:
+  level:
+    root: INFO
+    ru.otus.hw: DEBUG

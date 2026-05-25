@@ -13,7 +13,7 @@
 
     <groupId>ru.otus.hw</groupId>
     <artifactId>hw04</artifactId>
-    <version>1.0-SNAPSHOT</version>
+    <version>0.1.0</version>
     <name>HW04 - Работа с Helm-ом</name>
     <description>OTUS Microservice Architecture 2026-02 homework04</description>
     <developers>
@@ -36,10 +36,19 @@
         <logback-classic.version>1.5.32</logback-classic.version>
         <org.mapstruct.version>1.6.3</org.mapstruct.version>
         <lombok-mapstruct-binding.version>0.2.0</lombok-mapstruct-binding.version>
-        <org.springdoc.version>2.8.9</org.springdoc.version>
+        <org.springdoc.version>2.8.17</org.springdoc.version>
     </properties>
 
     <dependencies>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-configuration-processor</artifactId>
+            <optional>true</optional>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-data-jpa</artifactId>
@@ -74,8 +83,17 @@
             <artifactId>h2</artifactId>
         </dependency>
         <dependency>
+            <groupId>org.postgresql</groupId>
+            <artifactId>postgresql</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+        <dependency>
             <groupId>org.flywaydb</groupId>
             <artifactId>flyway-core</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.flywaydb</groupId>
+            <artifactId>flyway-database-postgresql</artifactId>
         </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>

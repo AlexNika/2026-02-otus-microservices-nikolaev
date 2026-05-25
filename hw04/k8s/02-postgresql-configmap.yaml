@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: hw04-postgres-config
+  labels:
+    app.kubernetes.io/name: hw04
+    app.kubernetes.io/instance: hw04
+data:
+  init.sql: |
+    CREATE SCHEMA IF NOT EXISTS app;
+    CREATE EXTENSION IF NOT EXISTS "uuid-ossp";

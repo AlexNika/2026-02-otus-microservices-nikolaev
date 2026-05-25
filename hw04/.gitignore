@@ -37,3 +37,10 @@ build/
 
 ### Mac OS ###
 .DS_Store
+/.gigacode/
+/amplicode.xml
+/.env
+/hw04chart/values-secret.yaml
+values-secret.yaml
+secrets/
+*.sops.yaml

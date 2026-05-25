@@ -1,0 +1,12 @@
+{{- if .Values.postgresql.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "hw04chart.fullname" . }}-postgres-config
+  labels:
+    {{ include "hw04chart.labels" . | nindent 4 }}
+data:
+  init.sql: |
+    CREATE SCHEMA IF NOT EXISTS app;
+    CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+{{- end }}

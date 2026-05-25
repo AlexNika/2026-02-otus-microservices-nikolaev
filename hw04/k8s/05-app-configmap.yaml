@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: hw04-app-config
+  labels:
+    app.kubernetes.io/name: hw04
+    app.kubernetes.io/instance: hw04
+data:
+  SERVER_PORT: "8000"
+  DB_HOST: "hw04-postgresql"
+  DB_PORT: "5432"
+  DB_NAME: "hw04db"
+  SPRING_DATASOURCE_URL: "jdbc:postgresql://hw04-postgresql:5432/hw04db?currentSchema=app"
+  SPRING_DATASOURCE_USERNAME: "hw04user"
+  SPRING_FLYWAY_ENABLED: "true"
+  SPRING_FLYWAY_LOCATIONS: "classpath:db/migration"

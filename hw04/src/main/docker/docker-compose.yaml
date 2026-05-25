@@ -1,0 +1,21 @@
+# for local development only
+services:
+  postgres:
+    image: postgres:16.11
+    restart: "on-failure"
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    environment:
+      POSTGRES_USER: hw04user
+      POSTGRES_PASSWORD: hw04pass
+      POSTGRES_DB: hw04db
+    healthcheck:
+      test: pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB
+      interval: 10s
+      timeout: 5s
+      start_period: 10s
+      retries: 5
+volumes:
+  postgres_data:

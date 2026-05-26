@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: hw04
+  labels:
+    app.kubernetes.io/name: hw04
+    app.kubernetes.io/instance: hw04
+spec:
+  type: ClusterIP
+  ports:
+    - port: 80
+      targetPort: 8000
+      protocol: TCP
+      name: http
+  selector:
+    app.kubernetes.io/name: hw04
+    app.kubernetes.io/instance: hw04

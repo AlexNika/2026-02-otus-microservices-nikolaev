@@ -1,0 +1,25 @@
+# yaml-language-server: $schema=https://json.schemastore.org/spring-configuration-metadata.json
+spring:
+  flyway:
+    enabled: ${SPRING_FLYWAY_ENABLED:false}
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/hw04db}
+    username: ${SPRING_DATASOURCE_USERNAME:hw04user}
+    password: ${SPRING_DATASOURCE_PASSWORD:hw04pass}
+    driver-class-name: org.postgresql.Driver
+  jpa:
+    hibernate:
+      ddl-auto: validate
+
+server:
+  port: ${SERVER_PORT:8000}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+logging:
+  level:
+    root: INFO
+    ru.otus.hw: DEBUG

@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "hw04chart.fullname" . }}-app-config
+  labels:
+    {{ include "hw04chart.labels" . | nindent 4 }}
+data:
+  SERVER_PORT: {{ .Values.service.targetPort | quote }}
+  DB_HOST: {{ include "hw04chart.fullname" . }}-postgresql
+  DB_PORT: "5432"
+  DB_NAME: {{ .Values.postgresql.auth.database | quote }}
+  SPRING_DATASOURCE_URL: "jdbc:postgresql://{{ include "hw04chart.fullname" . }}-postgresql:5432/{{ .Values.postgresql.auth.database }}?currentSchema=app"
+  SPRING_DATASOURCE_USERNAME: {{ .Values.postgresql.auth.username | quote }}
+  SPRING_FLYWAY_ENABLED: "true"
+  SPRING_FLYWAY_LOCATIONS: "classpath:db/migration"

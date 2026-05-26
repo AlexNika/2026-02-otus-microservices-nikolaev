@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: hw04-postgresql
+  labels:
+    app.kubernetes.io/name: hw04
+    app.kubernetes.io/instance: hw04
+spec:
+  type: ClusterIP
+  ports:
+    - port: 5432
+      targetPort: 5432
+      protocol: TCP
+      name: postgres
+  selector:
+    app.kubernetes.io/name: postgres
+    app.kubernetes.io/instance: hw04

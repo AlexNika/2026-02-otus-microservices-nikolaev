@@ -1,0 +1,44 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: {{ include "prometheus-grafana-chart.fullname" . }}-alerts
+  labels:
+    {{ include "prometheus-grafana-chart.labels" . | nindent 4 }}
+spec:
+  groups:
+    - name: hw05-application-alerts
+      rules:
+        - alert: HighErrorRate
+          expr: |
+            (
+              sum(rate(http_server_requests_seconds_count{application="hw05", status=~"5.."}[5m]))
+              /
+              sum(rate(http_server_requests_seconds_count{application="hw05"}[5m]))
+            ) * 100 > 10
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "High error rate detected for HW05 application"
+            description: "Error rate is above 10% for more than 5 minutes"
+
+        - alert: HighLatency
+          expr: |
+            histogram_quantile(0.95, 
+              sum(rate(http_server_requests_seconds_bucket{application="hw05"}[5m])) by (le)
+            ) > 2
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "High latency detected for HW05 application"
+            description: "95th percentile latency is above 2 seconds for more than 5 minutes"
+
+        - alert: ApplicationDown
+          expr: up{job="hw05-app"} == 0
+          for: 1m
+          labels:
+            severity: critical
+          annotations:
+            summary: "HW05 application is down"
+            description: "Application instance has been down for more than 1 minute"

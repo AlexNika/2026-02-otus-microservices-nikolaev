@@ -1,0 +1,43 @@
+# yaml-language-server: $schema=https://json.schemastore.org/spring-configuration-metadata.json
+spring:
+  profiles:
+    active: dev
+  application:
+    name: hw05
+  flyway:
+    enabled: ${SPRING_FLYWAY_ENABLED:false}
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/hw05db}
+    username: ${SPRING_DATASOURCE_USERNAME:hw05user}
+    password: ${SPRING_DATASOURCE_PASSWORD:hw05pass}
+    driver-class-name: org.postgresql.Driver
+  jpa:
+    hibernate:
+      ddl-auto: validate
+server:
+  port: ${SERVER_PORT:8000}
+management:
+  endpoint:
+    health:
+      probes:
+        enabled: true
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  metrics:
+    distribution:
+      percentiles-histogram:
+        http.server.requests: true
+      percentiles:
+        http.server.requests: 0.5, 0.95, 0.99
+    tags:
+      application: ${spring.application.name}
+  prometheus:
+    metrics:
+      export:
+        enabled: true
+logging:
+  level:
+    root: INFO
+    ru.otus.hw: DEBUG

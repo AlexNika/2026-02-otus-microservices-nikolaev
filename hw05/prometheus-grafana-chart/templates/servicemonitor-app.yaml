@@ -1,0 +1,17 @@
+{{- if .Values.appServiceMonitor.enabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ .Values.appServiceMonitor.name }}
+  namespace: {{ .Values.appServiceMonitor.namespace }}
+  labels:
+    {{ include "prometheus-grafana-chart.labels" . | nindent 4 }}
+spec:
+  selector:
+    {{ toYaml .Values.appServiceMonitor.selector | nindent 4 }}
+  namespaceSelector:
+    matchNames:
+      - {{ .Values.appServiceMonitor.namespace }}
+  endpoints:
+    {{ toYaml .Values.appServiceMonitor.endpoints | nindent 4 }}
+{{- end }}

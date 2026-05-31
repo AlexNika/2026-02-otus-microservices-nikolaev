@@ -1,0 +1,17 @@
+{{- if and .Values.postgresqlExporter.enabled .Values.postgresqlExporter.serviceMonitor.enabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "prometheus-grafana-chart.fullname" . }}-postgresql-exporter
+  labels:
+    {{ include "prometheus-grafana-chart.labels" . | nindent 4 }}
+    app.kubernetes.io/component: postgresql-exporter
+spec:
+  selector:
+    matchLabels:
+      {{ include "prometheus-grafana-chart.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: postgresql-exporter
+  endpoints:
+    - port: metrics
+      interval: {{ .Values.postgresqlExporter.serviceMonitor.interval }}
+{{- end }}

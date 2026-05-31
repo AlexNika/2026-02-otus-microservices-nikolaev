@@ -1,0 +1,122 @@
+kube-prometheus-stack:
+  enabled: true
+  prometheus:
+    prometheusSpec:
+      retention: 7d
+      storageSpec:
+        volumeClaimTemplate:
+          spec:
+            accessModes: ["ReadWriteOnce"]
+            resources:
+              requests:
+                storage: 2Gi
+      kubeletServiceMonitor:
+        enabled: true
+      cAdvisorServiceMonitor:
+        enabled: true
+      kubeletService:
+        enabled: true
+      serviceAccount:
+        name: prometheus-kube-prometheus-prometheus
+        create: false
+      rbac:
+        create: true
+      rbacSidecar:
+        create: true
+      serviceMonitorSelectorNilUsesHelmValues: false
+      podMonitorSelectorNilUsesHelmValues: false
+      ruleSelectorNilUsesHelmValues: false
+      serviceMonitorNamespaceSelector: {}
+      podMonitorNamespaceSelector: {}
+
+    ingress:
+      enabled: true
+      ingressClassName: nginx
+      annotations:
+        nginx.ingress.kubernetes.io/ssl-redirect: "false"
+      hosts:
+        - prometheus.arch.homework
+      paths:
+        - /
+      pathType: Prefix
+
+  grafana:
+    enabled: true
+    adminPassword: admin
+
+    grafana.ini:
+      auth.anonymous:
+        enabled: true
+        org_role: Admin
+      auth:
+        disable_login_form: true
+
+    ingress:
+      enabled: true
+      ingressClassName: nginx
+      annotations:
+        nginx.ingress.kubernetes.io/ssl-redirect: "false"
+      hosts:
+        - grafana.arch.homework
+      path: /
+      pathType: Prefix
+
+    sidecar:
+      dashboards:
+        enabled: true
+        searchNamespace: ALL
+
+  alertmanager:
+    enabled: true
+
+  nodeExporter:
+    enabled: true
+
+  kubeStateMetrics:
+    enabled: true
+
+  prometheusOperator:
+    enabled: true
+
+appServiceMonitor:
+  enabled: true
+  name: hw05-app
+  namespace: default
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: hw04chart
+  endpoints:
+    - port: http
+      path: /actuator/prometheus
+      interval: 15s
+
+nginxServiceMonitor:
+  enabled: true
+  name: nginx-ingress
+  namespace: ingress-nginx
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: ingress-nginx
+  endpoints:
+    - port: metrics
+      interval: 15s
+
+postgresqlExporter:
+  enabled: true
+  image:
+    repository: prometheuscommunity/postgres-exporter
+    tag: v0.15.0
+  replicaCount: 1
+  config:
+    datasource:
+      host: hw05-hw04chart-postgresql
+      port: "5432"
+      database: "hw04db"
+      user: "hw04user"
+      existingSecret:
+        name: hw05-hw04chart-postgres-secret
+        key: "password"
+      sslmode: disable
+  serviceMonitor:
+    enabled: true
+    interval: 15s

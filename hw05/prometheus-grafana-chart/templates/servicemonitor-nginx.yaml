@@ -1,0 +1,20 @@
+{{- if .Values.nginxServiceMonitor.enabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "prometheus-grafana-chart.fullname" . }}-nginx-ingress
+  labels:
+    {{ include "prometheus-grafana-chart.labels" . | nindent 4 }}
+    app.kubernetes.io/component: nginx-ingress
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: ingress-nginx
+      app.kubernetes.io/component: controller
+  namespaceSelector:
+    matchNames:
+      - {{ .Values.nginxServiceMonitor.namespace }}
+  endpoints:
+    - port: metrics
+      interval: 15s
+{{- end }}

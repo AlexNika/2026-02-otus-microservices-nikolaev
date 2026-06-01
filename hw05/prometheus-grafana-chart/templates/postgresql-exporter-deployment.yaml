@@ -1,0 +1,44 @@
+{{- if .Values.postgresqlExporter.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "prometheus-grafana-chart.fullname" . }}-postgresql-exporter
+  labels:
+    {{ include "prometheus-grafana-chart.labels" . | nindent 4 }}
+    app.kubernetes.io/component: postgresql-exporter
+spec:
+  replicas: {{ .Values.postgresqlExporter.replicaCount }}
+  selector:
+    matchLabels:
+      {{ include "prometheus-grafana-chart.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: postgresql-exporter
+  template:
+    metadata:
+      labels:
+        {{ include "prometheus-grafana-chart.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: postgresql-exporter
+    spec:
+      containers:
+        - name: postgresql-exporter
+          image: "{{ .Values.postgresqlExporter.image.repository }}:{{ .Values.postgresqlExporter.image.tag }}"
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: metrics
+              containerPort: 9187
+              protocol: TCP
+          env:
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.postgresqlExporter.config.datasource.existingSecret.name }}
+                  key: {{ .Values.postgresqlExporter.config.datasource.existingSecret.key }}
+            - name: DATA_SOURCE_NAME
+              value: "postgresql://{{ .Values.postgresqlExporter.config.datasource.user }}:$(POSTGRES_PASSWORD)@{{ .Values.postgresqlExporter.config.datasource.host }}:{{ .Values.postgresqlExporter.config.datasource.port }}/{{ .Values.postgresqlExporter.config.datasource.database }}?sslmode={{ .Values.postgresqlExporter.config.datasource.sslmode }}"
+          resources:
+            limits:
+              cpu: 100m
+              memory: 128Mi
+            requests:
+              cpu: 50m
+              memory: 64Mi
+{{- end }}

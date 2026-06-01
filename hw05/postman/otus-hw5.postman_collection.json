@@ -1,0 +1,520 @@
+{
+  "info": {
+    "_postman_id": "7dee8e35-18c2-4824-abc9-3b41c197eca9",
+    "name": "OTUS - Microservices HomeWork #5",
+    "description": "Проверка сервиса arch.homework для ДЗ №5 по Helm.\n\nКоллекция использует динамические данные:\n- POST создаёт пользователя с уникальными userName/email (через timestamp)\n- ID созданного пользователя сохраняется в переменную {{userId}}\n- GET/PUT/DELETE используют {{userId}} вместо захардкоженного ID\n- Каждый запуск коллекции (или итерация Newman) создаёт нового пользователя\n\nВажно: сервис имеет simulateRandomError() с 10% вероятностью 500 ошибки.\nВсе тесты принимают как ожидаемый статус, так и 500 (random error).",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "_exporter_id": "9167819"
+  },
+  "item": [
+    {
+      "name": "01 - /actuator/health",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Status code is 200\", function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.test(\"Response time is less than 2000 ms\", function () {",
+              "    pm.expect(pm.response.responseTime).to.be.below(2000);",
+              "});",
+              "",
+              "pm.test(\"Body has status UP\", function () {",
+              "    var jsonData = pm.response.json();",
+              "    pm.expect(jsonData.status).to.eql(\"UP\");",
+              "});"
+            ],
+            "type": "text/javascript",
+            "packages": {},
+            "requests": {}
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/actuator/health",
+          "host": ["{{baseUrl}}"],
+          "path": ["actuator", "health"]
+        },
+        "description": "Проверка основного health endpoint через ingress"
+      },
+      "response": []
+    },
+    {
+      "name": "02 - POST /user (create)",
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "exec": [
+              "// Генерируем уникальные данные для каждого запроса",
+              "var timestamp = new Date().getTime();",
+              "var randomSuffix = Math.floor(Math.random() * 100000);",
+              "",
+              "// Сохраняем в переменные коллекции для использования в body",
+              "pm.collectionVariables.set(\"randomUserName\", \"user_\" + timestamp + \"_\" + randomSuffix);",
+              "pm.collectionVariables.set(\"randomEmail\", \"user_\" + timestamp + \"_\" + randomSuffix + \"@test.com\");",
+              "pm.collectionVariables.set(\"randomFirstName\", \"TestFirst_\" + randomSuffix);",
+              "pm.collectionVariables.set(\"randomLastName\", \"TestLast_\" + randomSuffix);",
+              "",
+              "console.log(\"Creating user: \" + pm.collectionVariables.get(\"randomUserName\"));"
+            ],
+            "type": "text/javascript",
+            "packages": {},
+            "requests": {}
+          }
+        },
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "// Сервис имеет simulateRandomError() — 10% вероятность 500 ошибки",
+              "var statusCode = pm.response.code;",
+              "",
+              "pm.test(\"Status code is 201 or 500 (random error)\", function () {",
+              "    pm.expect(statusCode).to.be.oneOf([201, 500]);",
+              "});",
+              "",
+              "if (statusCode === 201) {",
+              "    pm.test(\"Response has Location header\", function () {",
+              "        pm.response.to.have.header(\"Location\");",
+              "    });",
+              "",
+              "    pm.test(\"Response body has id field\", function () {",
+              "        var jsonData = pm.response.json();",
+              "        pm.expect(jsonData).to.have.property(\"id\");",
+              "        pm.expect(jsonData.id).to.be.a(\"number\");",
+              "    });",
+              "",
+              "    // Сохраняем ID созданного пользователя для последующих запросов",
+              "    var jsonData = pm.response.json();",
+              "    pm.collectionVariables.set(\"userId\", jsonData.id);",
+              "    console.log(\"Created user with ID: \" + jsonData.id);",
+              "",
+              "    pm.test(\"User ID is saved for subsequent requests\", function () {",
+              "        pm.expect(jsonData.id).to.be.above(0);",
+              "    });",
+              "",
+              "    pm.test(\"Response body matches sent data\", function () {",
+              "        pm.expect(jsonData.userName).to.eql(pm.collectionVariables.get(\"randomUserName\"));",
+              "        pm.expect(jsonData.email).to.eql(pm.collectionVariables.get(\"randomEmail\"));",
+              "    });",
+              "} else {",
+              "    console.log(\"POST /user returned 500 (random error), skipping user creation tests\");",
+              "    // При 500 ошибке создаём фиктивный userId для продолжения коллекции",
+              "    // Последующие запросы тоже получат 500 или 404 — это нормально",
+              "    if (!pm.collectionVariables.get(\"userId\")) {",
+              "        pm.collectionVariables.set(\"userId\", 999999);",
+              "    }",
+              "}"
+            ],
+            "type": "text/javascript",
+            "packages": {},
+            "requests": {}
+          }
+        }
+      ],
+      "request": {
+        "auth": {
+          "type": "noauth"
+        },
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n    \"userName\": \"{{randomUserName}}\",\n    \"firstName\": \"{{randomFirstName}}\",\n    \"lastName\": \"{{randomLastName}}\",\n    \"email\": \"{{randomEmail}}\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/user",
+          "host": ["{{baseUrl}}"],
+          "path": ["user"]
+        },
+        "description": "Создание нового пользователя с уникальными данными.\n\nPre-request скрипт генерирует уникальные userName и email на основе timestamp.\nTest скрипт сохраняет ID созданного пользователя в переменную {{userId}}.\n\nПримечание: 10% вероятность 500 ошибки (simulateRandomError)."
+      },
+      "response": []
+    },
+    {
+      "name": "03 - GET /user/{id} (get created)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "var statusCode = pm.response.code;",
+              "",
+              "pm.test(\"Status code is 200 or 500 (random error)\", function () {",
+              "    pm.expect(statusCode).to.be.oneOf([200, 500]);",
+              "});",
+              "",
+              "if (statusCode === 200) {",
+              "    pm.test(\"Response body has correct user ID\", function () {",
+              "        var jsonData = pm.response.json();",
+              "        var expectedId = Number(pm.collectionVariables.get(\"userId\"));",
+              "        pm.expect(jsonData.id).to.eql(expectedId);",
+              "    });",
+              "",
+              "    pm.test(\"Response body has all required fields\", function () {",
+              "        var jsonData = pm.response.json();",
+              "        pm.expect(jsonData).to.have.property(\"id\");",
+              "        pm.expect(jsonData).to.have.property(\"userName\");",
+              "        pm.expect(jsonData).to.have.property(\"firstName\");",
+              "        pm.expect(jsonData).to.have.property(\"lastName\");",
+              "        pm.expect(jsonData).to.have.property(\"email\");",
+              "    });",
+              "",
+              "    pm.test(\"User data matches created user\", function () {",
+              "        var jsonData = pm.response.json();",
+              "        pm.expect(jsonData.userName).to.eql(pm.collectionVariables.get(\"randomUserName\"));",
+              "        pm.expect(jsonData.email).to.eql(pm.collectionVariables.get(\"randomEmail\"));",
+              "    });",
+              "} else {",
+              "    console.log(\"GET /user/{id} returned 500 (random error)\");",
+              "}"
+            ],
+            "type": "text/javascript",
+            "packages": {},
+            "requests": {}
+          }
+        }
+      ],
+      "request": {
+        "auth": {
+          "type": "noauth"
+        },
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/user/{{userId}}",
+          "host": ["{{baseUrl}}"],
+          "path": ["user", "{{userId}}"]
+        },
+        "description": "Получение пользователя по ID, который был создан в предыдущем POST запросе.\n\nИспользует переменную {{userId}}, сохранённую тестовым скриптом POST /user."
+      },
+      "response": []
+    },
+    {
+      "name": "04 - GET /user (get all)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "var statusCode = pm.response.code;",
+              "",
+              "pm.test(\"Status code is 200 or 500 (random error)\", function () {",
+              "    pm.expect(statusCode).to.be.oneOf([200, 500]);",
+              "});",
+              "",
+              "if (statusCode === 200) {",
+              "    pm.test(\"Response is a page object\", function () {",
+              "        var jsonData = pm.response.json();",
+              "        pm.expect(jsonData).to.have.property(\"content\");",
+              "        pm.expect(jsonData.content).to.be.an(\"array\");",
+              "    });",
+              "} else {",
+              "    console.log(\"GET /user returned 500 (random error)\");",
+              "}"
+            ],
+            "type": "text/javascript",
+            "packages": {},
+            "requests": {}
+          }
+        }
+      ],
+      "request": {
+        "auth": {
+          "type": "noauth"
+        },
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/user",
+          "host": ["{{baseUrl}}"],
+          "path": ["user"]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "05 - GET /user?ids (get by ids)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "var statusCode = pm.response.code;",
+              "",
+              "pm.test(\"Status code is 200 or 500 (random error)\", function () {",
+              "    pm.expect(statusCode).to.be.oneOf([200, 500]);",
+              "});",
+              "",
+              "if (statusCode === 200) {",
+              "    pm.test(\"Response is an array\", function () {",
+              "        var jsonData = pm.response.json();",
+              "        pm.expect(jsonData).to.be.an(\"array\");",
+              "    });",
+              "} else {",
+              "    console.log(\"GET /user?ids returned 500 (random error)\");",
+              "}"
+            ],
+            "type": "text/javascript",
+            "packages": {},
+            "requests": {}
+          }
+        }
+      ],
+      "request": {
+        "auth": {
+          "type": "noauth"
+        },
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/user?ids={{userId}}",
+          "host": ["{{baseUrl}}"],
+          "path": ["user"],
+          "query": [
+            {
+              "key": "ids",
+              "value": "{{userId}}"
+            }
+          ]
+        },
+        "description": "Получение пользователей по списку ID.\n\nИспользует {{userId}} созданного пользователя."
+      },
+      "response": []
+    },
+    {
+      "name": "06 - PUT /user/{id} (update)",
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "exec": [
+              "// Генерируем обновлённые данные",
+              "var randomSuffix = Math.floor(Math.random() * 100000);",
+              "pm.collectionVariables.set(\"updatedFirstName\", \"UpdatedFirst_\" + randomSuffix);",
+              "pm.collectionVariables.set(\"updatedLastName\", \"UpdatedLast_\" + randomSuffix);",
+              "pm.collectionVariables.set(\"updatedEmail\", \"updated_\" + randomSuffix + \"@test.com\");",
+              "",
+              "console.log(\"Updating user \" + pm.collectionVariables.get(\"userId\") + \" with new data\");"
+            ],
+            "type": "text/javascript",
+            "packages": {},
+            "requests": {}
+          }
+        },
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "var statusCode = pm.response.code;",
+              "",
+              "// 404 возможен, если POST вернул 500 и пользователь не был создан",
+              "pm.test(\"Status code is 200, 404, or 500 (random error)\", function () {",
+              "    pm.expect(statusCode).to.be.oneOf([200, 404, 500]);",
+              "});",
+              "",
+              "if (statusCode === 200) {",
+              "    pm.test(\"Response body has correct user ID\", function () {",
+              "        var jsonData = pm.response.json();",
+              "        var expectedId = Number(pm.collectionVariables.get(\"userId\"));",
+              "        pm.expect(jsonData.id).to.eql(expectedId);",
+              "    });",
+              "",
+              "    pm.test(\"User data is updated\", function () {",
+              "        var jsonData = pm.response.json();",
+              "        pm.expect(jsonData.firstName).to.eql(pm.collectionVariables.get(\"updatedFirstName\"));",
+              "        pm.expect(jsonData.lastName).to.eql(pm.collectionVariables.get(\"updatedLastName\"));",
+              "        pm.expect(jsonData.email).to.eql(pm.collectionVariables.get(\"updatedEmail\"));",
+              "    });",
+              "} else if (statusCode === 404) {",
+              "    console.log(\"PUT /user/{id} returned 404 (user was not created due to POST 500 error)\");",
+              "} else {",
+              "    console.log(\"PUT /user/{id} returned 500 (random error)\");",
+              "}"
+            ],
+            "type": "text/javascript",
+            "packages": {},
+            "requests": {}
+          }
+        }
+      ],
+      "request": {
+        "auth": {
+          "type": "noauth"
+        },
+        "method": "PUT",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n    \"userName\": \"{{randomUserName}}\",\n    \"firstName\": \"{{updatedFirstName}}\",\n    \"lastName\": \"{{updatedLastName}}\",\n    \"email\": \"{{updatedEmail}}\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/user/{{userId}}",
+          "host": ["{{baseUrl}}"],
+          "path": ["user", "{{userId}}"]
+        },
+        "description": "Обновление пользователя по ID, который был создан в POST запросе.\n\nИспользует переменную {{userId}} и обновлённые данные из pre-request скрипта."
+      },
+      "response": []
+    },
+    {
+      "name": "07 - DELETE /user/{id} (cleanup)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "var statusCode = pm.response.code;",
+              "",
+              "pm.test(\"Status code is 204 or 500 (random error)\", function () {",
+              "    pm.expect(statusCode).to.be.oneOf([204, 500]);",
+              "});",
+              "",
+              "if (statusCode === 204) {",
+              "    pm.test(\"Response body is empty\", function () {",
+              "        pm.expect(pm.response.text()).to.be.empty;",
+              "    });",
+              "} else {",
+              "    console.log(\"DELETE /user/{id} returned 500 (random error)\");",
+              "}"
+            ],
+            "type": "text/javascript",
+            "packages": {},
+            "requests": {}
+          }
+        }
+      ],
+      "request": {
+        "auth": {
+          "type": "noauth"
+        },
+        "method": "DELETE",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/user/{{userId}}",
+          "host": ["{{baseUrl}}"],
+          "path": ["user", "{{userId}}"]
+        },
+        "description": "Удаление созданного пользователя (cleanup).\n\nИспользует переменную {{userId}}."
+      },
+      "response": []
+    },
+    {
+      "name": "08 - GET /user/{id} (verify deleted)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "var statusCode = pm.response.code;",
+              "",
+              "// После удаления ожидаем 404, но также возможен 500 (random error)",
+              "pm.test(\"Status code is 404 or 500 (random error)\", function () {",
+              "    pm.expect(statusCode).to.be.oneOf([404, 500]);",
+              "});",
+              "",
+              "if (statusCode === 404) {",
+              "    pm.test(\"User is confirmed deleted\", function () {",
+              "        console.log(\"User \" + pm.collectionVariables.get(\"userId\") + \" successfully deleted\");",
+              "    });",
+              "} else {",
+              "    console.log(\"GET /user/{id} (verify deleted) returned 500 (random error)\");",
+              "}"
+            ],
+            "type": "text/javascript",
+            "packages": {},
+            "requests": {}
+          }
+        }
+      ],
+      "request": {
+        "auth": {
+          "type": "noauth"
+        },
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/user/{{userId}}",
+          "host": ["{{baseUrl}}"],
+          "path": ["user", "{{userId}}"]
+        },
+        "description": "Проверка, что пользователь действительно удалён (ожидается 404).\n\nПримечание: 10% вероятность 500 ошибки (simulateRandomError)."
+      },
+      "response": []
+    }
+  ],
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://arch.homework",
+      "type": "string"
+    },
+    {
+      "key": "userId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "randomUserName",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "randomEmail",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "randomFirstName",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "randomLastName",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "updatedFirstName",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "updatedLastName",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "updatedEmail",
+      "value": "",
+      "type": "string"
+    }
+  ]
+}

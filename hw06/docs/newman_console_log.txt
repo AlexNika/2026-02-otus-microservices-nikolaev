@@ -1,0 +1,136 @@
+PS D:\OTUS\Microservice Architecture\2026-02-otus-microservices-nikolaev\hw06> .\scripts\06-run-postman.ps1 -HtmlReport
+---> Checking newman
+Newman version: 6.2.2
+---> Using environment: .\postman\local.postman_environment.json
+---> HTML report (htmlextra) will be saved to: .\reports\newman-report-20260617-160502.html
+---> Running: newman run .\postman\otus-hw6.postman_collection.json -e .\postman\local.postman_environment.json --delay-request 100 --timeout-request 30000 --reporters cli,htmlextra --reporter-htmlextra-export .\reports\newman-report-20260617-160502.html
+
+newman
+
+OTUS - Microservices HomeWork #6
+
+→ 01 - /actuator/health
+  GET http://arch.homework/actuator/health [200 OK, 781B, 97ms]
+  √  Status code is 200
+  √  Response time is less than 2000 ms
+  √  Body has status UP
+
+→ 02 - Register User 1
+  ┌
+  │ 'Registering user 1: user1_1781701507906_22031@test.com'
+  └
+  POST http://arch.homework/api/v1/auth/register [201 Created, 467B, 2.5s]
+  √  Status code is 201
+  √  Response body has id field
+  ┌
+  │ 'User 1 registered with ID: 2'
+  └
+  √  User data matches sent data
+
+→ 03 - GET /profile without auth (should fail)
+  GET http://arch.homework/api/v1/profile [401 Unauthorized, 444B, 52ms]
+  √  Status code is 401
+  √  Profile access is denied without authentication
+  ┌
+  │ 'Profile access correctly denied without authentication'
+  └
+
+→ 04 - PUT /profile without auth (should fail)
+  PUT http://arch.homework/api/v1/profile [401 Unauthorized, 444B, 17ms]
+  √  Status code is 401
+  √  Profile update is denied without authentication
+  ┌
+  │ 'Profile update correctly denied without authentication'
+  └
+
+→ 05 - Login User 1
+  POST http://arch.homework/api/v1/auth/login [200 OK, 631B, 1830ms]
+  √  Status code is 200
+  √  Response has JWT token
+  ┌
+  │ 'User 1 logged in, JWT token saved'
+  └
+
+→ 06 - Update User 1 Profile
+  ┌
+  │ 'Updating user 1 profile with new data'
+  └
+  PUT http://arch.homework/api/v1/profile [200 OK, 419B, 247ms]
+  √  Status code is 200
+  √  Profile is updated
+  ┌
+  │ 'User 1 profile updated successfully'
+  └
+
+→ 07 - GET User 1 Profile (verify update)
+  GET http://arch.homework/api/v1/profile [200 OK, 419B, 383ms]
+  √  Status code is 200
+  √  Profile data matches updated values
+  ┌
+  │ 'User 1 profile verified successfully'
+  └
+
+→ 08 - Logout User 1
+  POST http://arch.homework/api/v1/auth/logout [200 OK, 269B, 394ms]
+  √  Status code is 200
+  ┌
+  │ 'User 1 logged out successfully'
+  └
+
+→ 09 - Register User 2
+  ┌
+  │ 'Registering user 2: user2_1781701514906_67027@test.com'
+  └
+  POST http://arch.homework/api/v1/auth/register [201 Created, 467B, 2s]
+  √  Status code is 201
+  √  Response body has id field
+  ┌
+  │ 'User 2 registered with ID: 3'
+  └
+  √  User data matches sent data
+
+→ 10 - Login User 2
+  POST http://arch.homework/api/v1/auth/login [200 OK, 631B, 1461ms]
+  √  Status code is 200
+  √  Response has JWT token
+  ┌
+  │ 'User 2 logged in, JWT token saved'
+  └
+
+→ 11 - User 2 GET own profile (should work)
+  GET http://arch.homework/api/v1/profile [200 OK, 427B, 21ms]
+  √  Status code is 200
+  √  User 2 can access own profile
+  ┌
+  │ 'User 2 can access own profile'
+  └
+
+→ 12 - User 2 cannot access User 1 profile (isolation check)
+  GET http://arch.homework/api/v1/profile [200 OK, 427B, 24ms]
+  √  Status code is 200
+  √  User 2 sees own profile, not User 1 profile
+  ┌
+  │ 'User 2 correctly sees own profile, not User 1 profile'
+  └
+
+┌─────────────────────────┬────────────────────┬───────────────────┐
+│                         │           executed │            failed │
+├─────────────────────────┼────────────────────┼───────────────────┤
+│              iterations │                  1 │                 0 │
+├─────────────────────────┼────────────────────┼───────────────────┤
+│                requests │                 12 │                 0 │
+├─────────────────────────┼────────────────────┼───────────────────┤
+│            test-scripts │                 12 │                 0 │
+├─────────────────────────┼────────────────────┼───────────────────┤
+│      prerequest-scripts │                  3 │                 0 │
+├─────────────────────────┼────────────────────┼───────────────────┤
+│              assertions │                 26 │                 0 │
+├─────────────────────────┴────────────────────┴───────────────────┤
+│ total run duration: 11.7s                                        │
+├──────────────────────────────────────────────────────────────────┤
+│ total data received: 2.03kB (approx)                             │
+├──────────────────────────────────────────────────────────────────┤
+│ average response time: 764ms [min: 17ms, max: 2.5s, s.d.: 903ms] │
+└──────────────────────────────────────────────────────────────────┘
+
+---> Newman run completed successfully

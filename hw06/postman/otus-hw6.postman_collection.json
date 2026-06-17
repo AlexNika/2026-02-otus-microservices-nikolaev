@@ -1,0 +1,752 @@
+{
+  "info": {
+    "_postman_id": "7dee8e35-18c2-4824-abc9-3b41c197eca9",
+    "name": "OTUS - Microservices HomeWork #6",
+    "description": "Проверка сервиса arch.homework для ДЗ №6 по Security.\n\nСценарий тестирования:\n1. Регистрация пользователя 1\n2. Проверка, что изменение и получение профиля недоступно без логина\n3. Вход пользователя 1\n4. Изменение профиля пользователя 1\n5. Проверка, что профиль поменялся\n6. Выход пользователя 1\n7. Регистрация пользователя 2\n8. Вход пользователя 2\n9. Проверка, что пользователь 2 не имеет доступа к профилю пользователя 1",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "_exporter_id": "9167819"
+  },
+  "item": [
+    {
+      "name": "01 - /actuator/health",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Status code is 200\", function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.test(\"Response time is less than 2000 ms\", function () {",
+              "    pm.expect(pm.response.responseTime).to.be.below(2000);",
+              "});",
+              "",
+              "pm.test(\"Body has status UP\", function () {",
+              "    var jsonData = pm.response.json();",
+              "    pm.expect(jsonData.status).to.eql(\"UP\");",
+              "});"
+            ],
+            "type": "text/javascript",
+            "packages": {},
+            "requests": {}
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/actuator/health",
+          "host": ["{{baseUrl}}"],
+          "path": ["actuator", "health"]
+        },
+        "description": "Проверка основного health endpoint через ingress"
+      },
+      "response": []
+    },
+    {
+      "name": "02 - Register User 1",
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "exec": [
+              "// Генерируем уникальные данные для пользователя 1",
+              "var timestamp = new Date().getTime();",
+              "var randomSuffix = Math.floor(Math.random() * 100000);",
+              "",
+              "pm.collectionVariables.set(\"user1UserName\", \"user1_\" + timestamp + \"_\" + randomSuffix);",
+              "pm.collectionVariables.set(\"user1Email\", \"user1_\" + timestamp + \"_\" + randomSuffix + \"@test.com\");",
+              "pm.collectionVariables.set(\"user1FirstName\", \"User1First_\" + randomSuffix);",
+              "pm.collectionVariables.set(\"user1LastName\", \"User1Last_\" + randomSuffix);",
+              "pm.collectionVariables.set(\"user1Password\", \"Password1!\");",
+              "",
+              "console.log(\"Registering user 1: \" + pm.collectionVariables.get(\"user1Email\"));"
+            ],
+            "type": "text/javascript",
+            "packages": {},
+            "requests": {}
+          }
+        },
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Status code is 201\", function () {",
+              "    pm.response.to.have.status(201);",
+              "});",
+              "",
+              "pm.test(\"Response body has id field\", function () {",
+              "    var jsonData = pm.response.json();",
+              "    pm.expect(jsonData).to.have.property(\"id\");",
+              "    pm.expect(jsonData.id).to.be.a(\"number\");",
+              "});",
+              "",
+              "var jsonData = pm.response.json();",
+              "pm.collectionVariables.set(\"user1Id\", jsonData.id);",
+              "console.log(\"User 1 registered with ID: \" + jsonData.id);",
+              "",
+              "pm.test(\"User data matches sent data\", function () {",
+              "    pm.expect(jsonData.userName).to.eql(pm.collectionVariables.get(\"user1UserName\"));",
+              "    pm.expect(jsonData.email).to.eql(pm.collectionVariables.get(\"user1Email\"));",
+              "});"
+            ],
+            "type": "text/javascript",
+            "packages": {},
+            "requests": {}
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n    \"userName\": \"{{user1UserName}}\",\n    \"firstName\": \"{{user1FirstName}}\",\n    \"lastName\": \"{{user1LastName}}\",\n    \"email\": \"{{user1Email}}\",\n    \"password\": \"{{user1Password}}\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/auth/register",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "v1", "auth", "register"]
+        },
+        "description": "Регистрация пользователя 1 с уникальными данными."
+      },
+      "response": []
+    },
+    {
+      "name": "03 - GET /profile without auth (should fail)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Status code is 401\", function () {",
+              "    pm.response.to.have.status(401);",
+              "});",
+              "",
+              "pm.test(\"Profile access is denied without authentication\", function () {",
+              "    var jsonData = pm.response.json();",
+              "    pm.expect(jsonData).to.have.property(\"message\");",
+              "});",
+              "console.log(\"Profile access correctly denied without authentication\");"
+            ],
+            "type": "text/javascript",
+            "packages": {},
+            "requests": {}
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/profile",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "v1", "profile"]
+        },
+        "description": "Проверка, что получение профиля недоступно без аутентификации."
+      },
+      "response": []
+    },
+    {
+      "name": "04 - PUT /profile without auth (should fail)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Status code is 401\", function () {",
+              "    pm.response.to.have.status(401);",
+              "});",
+              "",
+              "pm.test(\"Profile update is denied without authentication\", function () {",
+              "    var jsonData = pm.response.json();",
+              "    pm.expect(jsonData).to.have.property(\"message\");",
+              "});",
+              "console.log(\"Profile update correctly denied without authentication\");"
+            ],
+            "type": "text/javascript",
+            "packages": {},
+            "requests": {}
+          }
+        }
+      ],
+      "request": {
+        "method": "PUT",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n    \"userName\": \"updated_user\",\n    \"firstName\": \"Updated\",\n    \"lastName\": \"Name\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/profile",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "v1", "profile"]
+        },
+        "description": "Проверка, что изменение профиля недоступно без аутентификации."
+      },
+      "response": []
+    },
+    {
+      "name": "05 - Login User 1",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Status code is 200\", function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.test(\"Response has JWT token\", function () {",
+              "    var jsonData = pm.response.json();",
+              "    pm.expect(jsonData).to.have.property(\"token\");",
+              "    pm.expect(jsonData.token).to.be.a(\"string\");",
+              "    pm.expect(jsonData.token.length).to.be.above(0);",
+              "});",
+              "",
+              "var jsonData = pm.response.json();",
+              "pm.collectionVariables.set(\"user1Token\", jsonData.token);",
+              "console.log(\"User 1 logged in, JWT token saved\");"
+            ],
+            "type": "text/javascript",
+            "packages": {},
+            "requests": {}
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n    \"email\": \"{{user1Email}}\",\n    \"password\": \"{{user1Password}}\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/auth/login",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "v1", "auth", "login"]
+        },
+        "description": "Аутентификация пользователя 1 и получение JWT токена."
+      },
+      "response": []
+    },
+    {
+      "name": "06 - Update User 1 Profile",
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "exec": [
+              "// Генерируем обновлённые данные для профиля",
+              "var randomSuffix = Math.floor(Math.random() * 100000);",
+              "pm.collectionVariables.set(\"updatedUserName\", \"updated_\" + randomSuffix);",
+              "pm.collectionVariables.set(\"updatedFirstName\", \"UpdatedFirst_\" + randomSuffix);",
+              "pm.collectionVariables.set(\"updatedLastName\", \"UpdatedLast_\" + randomSuffix);",
+              "",
+              "console.log(\"Updating user 1 profile with new data\");"
+            ],
+            "type": "text/javascript",
+            "packages": {},
+            "requests": {}
+          }
+        },
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Status code is 200\", function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.test(\"Profile is updated\", function () {",
+              "    var jsonData = pm.response.json();",
+              "    pm.expect(jsonData.userName).to.eql(pm.collectionVariables.get(\"updatedUserName\"));",
+              "    pm.expect(jsonData.firstName).to.eql(pm.collectionVariables.get(\"updatedFirstName\"));",
+              "    pm.expect(jsonData.lastName).to.eql(pm.collectionVariables.get(\"updatedLastName\"));",
+              "});",
+              "console.log(\"User 1 profile updated successfully\");"
+            ],
+            "type": "text/javascript",
+            "packages": {},
+            "requests": {}
+          }
+        }
+      ],
+      "request": {
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{user1Token}}",
+              "type": "string"
+            }
+          ]
+        },
+        "method": "PUT",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n    \"userName\": \"{{updatedUserName}}\",\n    \"firstName\": \"{{updatedFirstName}}\",\n    \"lastName\": \"{{updatedLastName}}\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/profile",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "v1", "profile"]
+        },
+        "description": "Обновление профиля пользователя 1."
+      },
+      "response": []
+    },
+    {
+      "name": "07 - GET User 1 Profile (verify update)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Status code is 200\", function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.test(\"Profile data matches updated values\", function () {",
+              "    var jsonData = pm.response.json();",
+              "    pm.expect(jsonData.userName).to.eql(pm.collectionVariables.get(\"updatedUserName\"));",
+              "    pm.expect(jsonData.firstName).to.eql(pm.collectionVariables.get(\"updatedFirstName\"));",
+              "    pm.expect(jsonData.lastName).to.eql(pm.collectionVariables.get(\"updatedLastName\"));",
+              "});",
+              "console.log(\"User 1 profile verified successfully\");"
+            ],
+            "type": "text/javascript",
+            "packages": {},
+            "requests": {}
+          }
+        }
+      ],
+      "request": {
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{user1Token}}",
+              "type": "string"
+            }
+          ]
+        },
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/profile",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "v1", "profile"]
+        },
+        "description": "Проверка, что профиль пользователя 1 обновился."
+      },
+      "response": []
+    },
+    {
+      "name": "08 - Logout User 1",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Status code is 200\", function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "console.log(\"User 1 logged out successfully\");",
+              "// Очищаем токен пользователя 1",
+              "pm.collectionVariables.set(\"user1Token\", \"\");"
+            ],
+            "type": "text/javascript",
+            "packages": {},
+            "requests": {}
+          }
+        }
+      ],
+      "request": {
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{user1Token}}",
+              "type": "string"
+            }
+          ]
+        },
+        "method": "POST",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/auth/logout",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "v1", "auth", "logout"]
+        },
+        "description": "Выход пользователя 1."
+      },
+      "response": []
+    },
+    {
+      "name": "09 - Register User 2",
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "exec": [
+              "// Генерируем уникальные данные для пользователя 2",
+              "var timestamp = new Date().getTime();",
+              "var randomSuffix = Math.floor(Math.random() * 100000);",
+              "",
+              "pm.collectionVariables.set(\"user2UserName\", \"user2_\" + timestamp + \"_\" + randomSuffix);",
+              "pm.collectionVariables.set(\"user2Email\", \"user2_\" + timestamp + \"_\" + randomSuffix + \"@test.com\");",
+              "pm.collectionVariables.set(\"user2FirstName\", \"User2First_\" + randomSuffix);",
+              "pm.collectionVariables.set(\"user2LastName\", \"User2Last_\" + randomSuffix);",
+              "pm.collectionVariables.set(\"user2Password\", \"Password2!\");",
+              "",
+              "console.log(\"Registering user 2: \" + pm.collectionVariables.get(\"user2Email\"));"
+            ],
+            "type": "text/javascript",
+            "packages": {},
+            "requests": {}
+          }
+        },
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Status code is 201\", function () {",
+              "    pm.response.to.have.status(201);",
+              "});",
+              "",
+              "pm.test(\"Response body has id field\", function () {",
+              "    var jsonData = pm.response.json();",
+              "    pm.expect(jsonData).to.have.property(\"id\");",
+              "    pm.expect(jsonData.id).to.be.a(\"number\");",
+              "});",
+              "",
+              "var jsonData = pm.response.json();",
+              "pm.collectionVariables.set(\"user2Id\", jsonData.id);",
+              "console.log(\"User 2 registered with ID: \" + jsonData.id);",
+              "",
+              "pm.test(\"User data matches sent data\", function () {",
+              "    pm.expect(jsonData.userName).to.eql(pm.collectionVariables.get(\"user2UserName\"));",
+              "    pm.expect(jsonData.email).to.eql(pm.collectionVariables.get(\"user2Email\"));",
+              "});"
+            ],
+            "type": "text/javascript",
+            "packages": {},
+            "requests": {}
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n    \"userName\": \"{{user2UserName}}\",\n    \"firstName\": \"{{user2FirstName}}\",\n    \"lastName\": \"{{user2LastName}}\",\n    \"email\": \"{{user2Email}}\",\n    \"password\": \"{{user2Password}}\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/auth/register",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "v1", "auth", "register"]
+        },
+        "description": "Регистрация пользователя 2 с уникальными данными."
+      },
+      "response": []
+    },
+    {
+      "name": "10 - Login User 2",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Status code is 200\", function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.test(\"Response has JWT token\", function () {",
+              "    var jsonData = pm.response.json();",
+              "    pm.expect(jsonData).to.have.property(\"token\");",
+              "    pm.expect(jsonData.token).to.be.a(\"string\");",
+              "    pm.expect(jsonData.token.length).to.be.above(0);",
+              "});",
+              "",
+              "var jsonData = pm.response.json();",
+              "pm.collectionVariables.set(\"user2Token\", jsonData.token);",
+              "console.log(\"User 2 logged in, JWT token saved\");"
+            ],
+            "type": "text/javascript",
+            "packages": {},
+            "requests": {}
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n    \"email\": \"{{user2Email}}\",\n    \"password\": \"{{user2Password}}\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/auth/login",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "v1", "auth", "login"]
+        },
+        "description": "Аутентификация пользователя 2 и получение JWT токена."
+      },
+      "response": []
+    },
+    {
+      "name": "11 - User 2 GET own profile (should work)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Status code is 200\", function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.test(\"User 2 can access own profile\", function () {",
+              "    var jsonData = pm.response.json();",
+              "    pm.expect(jsonData).to.have.property(\"userName\");",
+              "    pm.expect(jsonData.userName).to.eql(pm.collectionVariables.get(\"user2UserName\"));",
+              "});",
+              "console.log(\"User 2 can access own profile\");"
+            ],
+            "type": "text/javascript",
+            "packages": {},
+            "requests": {}
+          }
+        }
+      ],
+      "request": {
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{user2Token}}",
+              "type": "string"
+            }
+          ]
+        },
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/profile",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "v1", "profile"]
+        },
+        "description": "Проверка, что пользователь 2 может получить свой собственный профиль."
+      },
+      "response": []
+    },
+    {
+      "name": "12 - User 2 cannot access User 1 profile (isolation check)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Status code is 200\", function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.test(\"User 2 sees own profile, not User 1 profile\", function () {",
+              "    var jsonData = pm.response.json();",
+              "    // Профиль должен принадлежать пользователю 2, а не пользователю 1",
+              "    pm.expect(jsonData.userName).to.not.eql(pm.collectionVariables.get(\"updatedUserName\"));",
+              "    pm.expect(jsonData.userName).to.eql(pm.collectionVariables.get(\"user2UserName\"));",
+              "});",
+              "console.log(\"User 2 correctly sees own profile, not User 1 profile\");"
+            ],
+            "type": "text/javascript",
+            "packages": {},
+            "requests": {}
+          }
+        }
+      ],
+      "request": {
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{user2Token}}",
+              "type": "string"
+            }
+          ]
+        },
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/profile",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "v1", "profile"]
+        },
+        "description": "Проверка изоляции профилей: пользователь 2 не должен видеть профиль пользователя 1.\n\nAPI /api/v1/profile всегда возвращает профиль текущего аутентифицированного пользователя,\nпоэтому пользователь 2 физически не может получить доступ к профилю пользователя 1 через этот endpoint."
+      },
+      "response": []
+    }
+  ],
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://arch.homework",
+      "type": "string"
+    },
+    {
+      "key": "user1Id",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "user1UserName",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "user1Email",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "user1FirstName",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "user1LastName",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "user1Password",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "user1Token",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "user2Id",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "user2UserName",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "user2Email",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "user2FirstName",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "user2LastName",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "user2Password",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "user2Token",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "updatedUserName",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "updatedFirstName",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "updatedLastName",
+      "value": "",
+      "type": "string"
+    }
+  ]
+}

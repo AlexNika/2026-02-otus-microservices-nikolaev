@@ -1,0 +1,14 @@
+**
+
+!pom.xml
+!mvnw
+!mvnw.cmd
+!.mvn/
+!.mvn/**/*
+!src/
+!src/**/*
+!.dockerignore
+
+.git
+*.iml
+.DS_Store

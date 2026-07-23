@@ -1,0 +1,53 @@
+spring:
+  profiles:
+    active: dev
+  application:
+    name: ORDERService
+  flyway:
+    enabled: ${SPRING_FLYWAY_ENABLED:true}
+  datasource:
+    url: ${SPRING_DATASOURCE_URL_ORDER_SERVICE:jdbc:postgresql://localhost:5434/hw07db_order_service}
+    username: ${SPRING_DATASOURCE_USERNAME_ORDER_SERVICE:hw07user_order_service}
+    password: ${SPRING_DATASOURCE_PASSWORD_ORDER_SERVICE:hw07pass_order_service}
+    driver-class-name: org.postgresql.Driver
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+  rabbitmq:
+    host: ${RABBIT_ADDRESSES:localhost}
+    port: 5672
+    username: ${RABBIT_USERNAME:guest}
+    password: ${RABBIT_PASSWORD:guest}
+
+server:
+  port: ${SERVER_PORT_ORDER_SERVICE:8002}
+
+management:
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      show-details: always
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+
+logging:
+  file:
+    name: ./logs/order-service.log
+  config: classpath:logback-spring.xml
+  level:
+    root: INFO
+    ru.otus.hw: DEBUG
+
+app:
+  internal-api-key: ${INTERNAL_API_KEY}
+  billing-service-url: ${BILLING_SERVICE_URL:http://localhost:8001}
+  rabbitmq:
+    exchange-name: hw07.direct
+    queue-name: notification.queue
+    queue-type: classic
+    routing-key: notification.event
+    consumer-enabled: true

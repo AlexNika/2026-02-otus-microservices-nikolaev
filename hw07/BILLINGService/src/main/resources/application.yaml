@@ -1,0 +1,43 @@
+# yaml-language-server: $schema=https://json.schemastore.org/spring-configuration-metadata.json
+spring:
+  profiles:
+    active: dev
+  application:
+    name: BILLINGService
+  flyway:
+    enabled: ${SPRING_FLYWAY_ENABLED:true}
+  datasource:
+    url: ${SPRING_DATASOURCE_URL_BILLING_SERVICE:jdbc:postgresql://localhost:5433/hw07db_billing_service}
+    username: ${SPRING_DATASOURCE_USERNAME_BILLING_SERVICE:hw07user_billing_service}
+    password: ${SPRING_DATASOURCE_PASSWORD_BILLING_SERVICE:hw07pass_billing_service}
+    driver-class-name: org.postgresql.Driver
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+
+server:
+  port: ${SERVER_PORT_BILLING_SERVICE:8001}
+
+management:
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      show-details: always
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+
+logging:
+  file:
+    name: ./logs/billing-service.log
+  config: classpath:logback-spring.xml
+  level:
+    root: INFO
+    ru.otus.hw: DEBUG
+
+app:
+  simulation-errors-bypass-enabled: true
+  internal-api-key: ${INTERNAL_API_KEY}

@@ -1,0 +1,10 @@
+plugins {
+    id 'org.gradle.toolchains.foojay-resolver-convention' version '1.0.0'
+}
+
+rootProject.name = 'hw07'
+include ':COMMONDomain'
+include ':USERService'
+include ':BILLINGService'
+include ':ORDERService'
+include ':NOTIFICATIONService'

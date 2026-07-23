@@ -1,0 +1,489 @@
+{
+  "info": {
+    "_postman_id": "1b7c4e32-8d5f-4c8b-b2e3-hw7failed00002",
+    "name": "OTUS - Microservices HomeWork #7 - Order FAILED Notification",
+    "description": "E2E сценарий ДЗ №7 (negative path):\n1. Регистрация пользователя (USERService). При регистрации USERService автоматически создаёт аккаунт в BILLINGService с нулевым балансом.\n2. Проверка, что аккаунт создан и баланс равен 0 (депозит НЕ делаем).\n3. Создание заказа на 1000 руб. (ORDERService) — биллинг отклоняет списание (Insufficient funds), ORDERService отвечает 502, заказ помечается FAILED.\n4. ORDERService публикует NotificationEvent(status=FAILED) в RabbitMQ; NOTIFICATIONService сохраняет его в БД. Опрашиваем NOTIFICATIONService до появления уведомления со статусом FAILED по данному пользователю.\n\nЗапуск: newman run postman/otus-hw7-failed.postman_collection.json -e postman/local.postman_environment.json\n\nПредпосылки: поднята инфраструктура DEV/docker-compose.yaml (PostgreSQL + RabbitMQ) и запущены все 4 сервиса (порты 8000-8003).",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "01 - Health USERService",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Status code is 200\", function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.test(\"Body has status UP\", function () {",
+              "    var jsonData = pm.response.json();",
+              "    pm.expect(jsonData.status).to.eql(\"UP\");",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{userServiceUrl}}/actuator/health",
+          "host": [
+            "{{userServiceUrl}}"
+          ],
+          "path": [
+            "actuator",
+            "health"
+          ]
+        },
+        "description": "Проверка, что USERService запущен (порт 8000)."
+      },
+      "response": []
+    },
+    {
+      "name": "02 - Health BILLINGService",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Status code is 200\", function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.test(\"Body has status UP\", function () {",
+              "    var jsonData = pm.response.json();",
+              "    pm.expect(jsonData.status).to.eql(\"UP\");",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{billingServiceUrl}}/actuator/health",
+          "host": [
+            "{{billingServiceUrl}}"
+          ],
+          "path": [
+            "actuator",
+            "health"
+          ]
+        },
+        "description": "Проверка, что BILLINGService запущен (порт 8001)."
+      },
+      "response": []
+    },
+    {
+      "name": "03 - Health ORDERService",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Status code is 200\", function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.test(\"Body has status UP\", function () {",
+              "    var jsonData = pm.response.json();",
+              "    pm.expect(jsonData.status).to.eql(\"UP\");",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{orderServiceUrl}}/actuator/health",
+          "host": [
+            "{{orderServiceUrl}}"
+          ],
+          "path": [
+            "actuator",
+            "health"
+          ]
+        },
+        "description": "Проверка, что ORDERService запущен (порт 8002)."
+      },
+      "response": []
+    },
+    {
+      "name": "04 - Health NOTIFICATIONService",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Status code is 200\", function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.test(\"Body has status UP\", function () {",
+              "    var jsonData = pm.response.json();",
+              "    pm.expect(jsonData.status).to.eql(\"UP\");",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{notificationServiceUrl}}/actuator/health",
+          "host": [
+            "{{notificationServiceUrl}}"
+          ],
+          "path": [
+            "actuator",
+            "health"
+          ]
+        },
+        "description": "Проверка, что NOTIFICATIONService запущен (порт 8003)."
+      },
+      "response": []
+    },
+    {
+      "name": "05 - Register User (account auto-created)",
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "exec": [
+              "// Генерируем уникальные данные пользователя",
+              "var timestamp = new Date().getTime();",
+              "var randomSuffix = Math.floor(Math.random() * 100000);",
+              "",
+              "pm.collectionVariables.set(\"userName\", \"user_\" + timestamp + \"_\" + randomSuffix);",
+              "pm.collectionVariables.set(\"userEmail\", \"user_\" + timestamp + \"_\" + randomSuffix + \"@test.com\");",
+              "pm.collectionVariables.set(\"userFirstName\", \"First_\" + randomSuffix);",
+              "pm.collectionVariables.set(\"userLastName\", \"Last_\" + randomSuffix);",
+              "pm.collectionVariables.set(\"userPassword\", \"Password1!\");",
+              "",
+              "console.log(\"Registering user: \" + pm.collectionVariables.get(\"userEmail\"));"
+            ],
+            "type": "text/javascript"
+          }
+        },
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Status code is 201\", function () {",
+              "    pm.response.to.have.status(201);",
+              "});",
+              "",
+              "pm.test(\"Response body has id field\", function () {",
+              "    var jsonData = pm.response.json();",
+              "    pm.expect(jsonData).to.have.property(\"id\");",
+              "    pm.expect(jsonData.id).to.be.a(\"number\");",
+              "});",
+              "",
+              "var jsonData = pm.response.json();",
+              "pm.collectionVariables.set(\"userId\", jsonData.id);",
+              "console.log(\"User registered with ID: \" + jsonData.id + \" (billing account auto-created by USERService)\");",
+              "",
+              "pm.test(\"User data matches sent data\", function () {",
+              "    pm.expect(jsonData.userName).to.eql(pm.collectionVariables.get(\"userName\"));",
+              "    pm.expect(jsonData.email).to.eql(pm.collectionVariables.get(\"userEmail\"));",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n    \"userName\": \"{{userName}}\",\n    \"firstName\": \"{{userFirstName}}\",\n    \"lastName\": \"{{userLastName}}\",\n    \"email\": \"{{userEmail}}\",\n    \"password\": \"{{userPassword}}\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{userServiceUrl}}/api/v1/auth/register",
+          "host": [
+            "{{userServiceUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "auth",
+            "register"
+          ]
+        },
+        "description": "Регистрация нового пользователя. USERService внутри вызывает BILLINGService и создаёт биллинг-аккаунт. Endpoint публичный (security дальше USERService не распространяется)."
+      },
+      "response": []
+    },
+    {
+      "name": "06 - Get account by userId (balance = 0, no deposit)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Status code is 200\", function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.test(\"Billing account auto-created with zero balance\", function () {",
+              "    var jsonData = pm.response.json();",
+              "    pm.expect(Number(jsonData.userId)).to.eql(Number(pm.collectionVariables.get(\"userId\")));",
+              "    pm.expect(Number(jsonData.balance)).to.eql(0);",
+              "    pm.expect(jsonData.enabled).to.be.true;",
+              "});",
+              "",
+              "console.log(\"Billing account verified: balance=0, no deposit will be made\");"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{billingServiceUrl}}/api/v1/account/user/{{userId}}",
+          "host": [
+            "{{billingServiceUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "account",
+            "user",
+            "{{userId}}"
+          ]
+        },
+        "description": "Проверка, что биллинг-аккаунт создан при регистрации и баланс = 0. Депозит намеренно не выполняется — денег на заказ не хватит."
+      },
+      "response": []
+    },
+    {
+      "name": "07 - Create order (1000 RUB, insufficient funds)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Status code is 502 (billing rejected withdrawal)\", function () {",
+              "    pm.response.to.have.status(502);",
+              "});",
+              "",
+              "pm.test(\"Error response has message\", function () {",
+              "    var jsonData = pm.response.json();",
+              "    pm.expect(jsonData).to.have.property(\"message\");",
+              "    pm.expect(jsonData.message).to.be.a(\"string\").and.not.empty;",
+              "});",
+              "",
+              "var jsonData = pm.response.json();",
+              "console.log(\"Order creation failed as expected: \" + jsonData.message);",
+              "console.log(\"ORDERService should have published FAILED NotificationEvent to RabbitMQ\");"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n    \"userId\": {{userId}},\n    \"price\": 1000,\n    \"description\": \"HW7 FAILED scenario test order (insufficient funds)\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{orderServiceUrl}}/api/v1/order",
+          "host": [
+            "{{orderServiceUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "order"
+          ]
+        },
+        "description": "Создание заказа на 1000 руб. при нулевом балансе. BILLINGService отклоняет списание (Insufficient funds), ORDERService возвращает 502 и публикует NotificationEvent(status=FAILED) в RabbitMQ."
+      },
+      "response": []
+    },
+    {
+      "name": "08 - Get FAILED notification (poll)",
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "exec": [
+              "// При повторных попытках ждём 1 секунду, чтобы событие успело пройти через RabbitMQ",
+              "var attempt = parseInt(pm.collectionVariables.get(\"pollAttempt\") || \"1\", 10);",
+              "if (attempt > 1) {",
+              "    console.log(\"Waiting 1000 ms before attempt #\" + attempt + \"...\");",
+              "    setTimeout(function () {}, 1000);",
+              "}"
+            ],
+            "type": "text/javascript"
+          }
+        },
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "var maxAttempts = 10;",
+              "var attempt = parseInt(pm.collectionVariables.get(\"pollAttempt\") || \"1\", 10);",
+              "var expectedUserId = Number(pm.collectionVariables.get(\"userId\"));",
+              "",
+              "pm.test(\"Status code is 200\", function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "var notifications = [];",
+              "try {",
+              "    notifications = pm.response.json();",
+              "} catch (e) {",
+              "    notifications = [];",
+              "}",
+              "",
+              "// Заказ при ошибке биллинга не сохраняется (откат транзакции), orderId из ответа неизвестен.",
+              "// Пользователь свежесозданный, поэтому у него ровно одно уведомление - FAILED.",
+              "var found = notifications.some(function (n) {",
+              "    return n.notificationStatus === \"FAILED\"",
+              "        && Number(n.userId) === expectedUserId;",
+              "});",
+              "",
+              "if (found) {",
+              "    pm.test(\"FAILED notification event found for userId \" + expectedUserId, function () {",
+              "        pm.expect(found).to.be.true;",
+              "    });",
+              "    var notification = notifications.find(function (n) {",
+              "        return n.notificationStatus === \"FAILED\" && Number(n.userId) === expectedUserId;",
+              "    });",
+              "    console.log(\"FAILED notification found: \" + JSON.stringify(notification));",
+              "    pm.collectionVariables.set(\"pollAttempt\", \"1\");",
+              "} else if (attempt < maxAttempts) {",
+              "    console.log(\"Attempt \" + attempt + \"/\" + maxAttempts + \": FAILED notification not found yet, retrying...\");",
+              "    pm.collectionVariables.set(\"pollAttempt\", String(attempt + 1));",
+              "    postman.setNextRequest(pm.info.requestName);",
+              "} else {",
+              "    pm.collectionVariables.set(\"pollAttempt\", \"1\");",
+              "    pm.test(\"FAILED notification event found for userId \" + expectedUserId, function () {",
+              "        pm.expect(found).to.be.true;",
+              "    });",
+              "}"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{notificationServiceUrl}}/api/v1/notification?userId={{userId}}",
+          "host": [
+            "{{notificationServiceUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "notification"
+          ],
+          "query": [
+            {
+              "key": "userId",
+              "value": "{{userId}}"
+            }
+          ]
+        },
+        "description": "Опрос NOTIFICATIONService до появления уведомления FAILED по данному пользователю (до 10 попыток с паузой 1 с). ВНИМАНИЕ: двойной слэш в пути — так замаплен NotificationController (api/v1/notification)."
+      },
+      "response": []
+    }
+  ],
+  "variable": [
+    {
+      "key": "userServiceUrl",
+      "value": "http://localhost:8000",
+      "type": "string"
+    },
+    {
+      "key": "billingServiceUrl",
+      "value": "http://localhost:8001",
+      "type": "string"
+    },
+    {
+      "key": "orderServiceUrl",
+      "value": "http://localhost:8002",
+      "type": "string"
+    },
+    {
+      "key": "notificationServiceUrl",
+      "value": "http://localhost:8003",
+      "type": "string"
+    },
+    {
+      "key": "userId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "pollAttempt",
+      "value": "1",
+      "type": "string"
+    },
+    {
+      "key": "userName",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "userEmail",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "userFirstName",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "userLastName",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "userPassword",
+      "value": "",
+      "type": "string"
+    }
+  ]
+}

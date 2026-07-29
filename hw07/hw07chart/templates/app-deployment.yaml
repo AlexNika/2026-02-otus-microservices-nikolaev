@@ -1,0 +1,75 @@
+{{- range $name, $svc := .Values.services }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "hw07chart.fullname" $ }}-{{ $name }}
+  labels:
+    {{ include "hw07chart.labels" $ | nindent 4 }}
+    app.kubernetes.io/name: {{ $name }}
+spec:
+  replicas: {{ $.Values.replicaCount }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ $name }}
+      app.kubernetes.io/instance: {{ $.Release.Name }}
+  template:
+    metadata:
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "{{ $svc.port }}"
+        prometheus.io/path: "/actuator/prometheus"
+      labels:
+        app.kubernetes.io/name: {{ $name }}
+        app.kubernetes.io/instance: {{ $.Release.Name }}
+    spec:
+      {{- if $svc.waitFor }}
+      initContainers:
+        {{- range $w := $svc.waitFor }}
+        {{- $parts := splitList ":" $w }}
+        - name: wait-for-{{ index $parts 0 | replace "hw07-" "" }}
+          image: busybox:1.36
+          command:
+            - sh
+            - -c
+            - |
+              echo "Waiting for {{ index $parts 0 }}:{{ index $parts 1 }}..."
+              until nc -z {{ index $parts 0 }} {{ index $parts 1 }}; do
+                echo "{{ index $parts 0 }} is not ready yet. Waiting..."
+                sleep 2
+              done
+              echo "{{ index $parts 0 }} is ready!"
+        {{- end }}
+      {{- end }}
+      containers:
+        - name: {{ $name }}
+          image: "{{ $.Values.image.repository }}:{{ $svc.imageTag }}"
+          imagePullPolicy: {{ $.Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ $svc.port }}
+              protocol: TCP
+          envFrom:
+            - configMapRef:
+                name: {{ include "hw07chart.fullname" $ }}-{{ $name }}-config
+            - secretRef:
+                name: {{ include "hw07chart.fullname" $ }}-app-secret
+          env:
+            - name: {{ $svc.dbPasswordKey }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "hw07chart.fullname" $ }}-postgres-secret
+                  key: {{ $svc.dbPasswordKey }}
+          {{- $startup := deepCopy $.Values.probes.startupProbe }}
+          {{- $_ := set $startup.httpGet "port" $svc.port }}
+          startupProbe:
+            {{ toYaml $startup | nindent 12 }}
+          {{- $readiness := deepCopy $.Values.probes.readinessProbe }}
+          {{- $_ := set $readiness.httpGet "port" $svc.port }}
+          readinessProbe:
+            {{ toYaml $readiness | nindent 12 }}
+          {{- $liveness := deepCopy $.Values.probes.livenessProbe }}
+          {{- $_ := set $liveness.httpGet "port" $svc.port }}
+          livenessProbe:
+            {{ toYaml $liveness | nindent 12 }}
+---
+{{- end }}

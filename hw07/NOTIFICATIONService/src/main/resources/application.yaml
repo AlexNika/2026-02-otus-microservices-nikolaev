@@ -1,0 +1,52 @@
+# yaml-language-server: $schema=https://json.schemastore.org/spring-configuration-metadata.json
+spring:
+  profiles:
+    active: dev
+  application:
+    name: NOTIFICATIONService
+  flyway:
+    enabled: ${SPRING_FLYWAY_ENABLED:true}
+  datasource:
+    url: ${SPRING_DATASOURCE_URL_NOTIFICATION_SERVICE:jdbc:postgresql://localhost:5435/hw07db_notification_service}
+    username: ${SPRING_DATASOURCE_USERNAME_NOTIFICATION_SERVICE:hw07user_notification_service}
+    password: ${SPRING_DATASOURCE_PASSWORD_NOTIFICATION_SERVICE:hw07pass_notification_service}
+    driver-class-name: org.postgresql.Driver
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+  rabbitmq:
+    host: ${RABBIT_ADDRESSES:localhost}
+    port: 5672
+    username: ${RABBIT_USERNAME:guest}
+    password: ${RABBIT_PASSWORD:guest}
+
+server:
+  port: ${SERVER_PORT_NOTIFICATION_SERVICE:8003}
+
+management:
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      show-details: always
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+
+logging:
+  file:
+    name: ./logs/notification-service.log
+  config: classpath:logback-spring.xml
+  level:
+    root: INFO
+    ru.otus.hw: DEBUG
+
+app:
+  rabbitmq:
+    exchange-name: hw07.direct
+    queue-name: notification.queue
+    queue-type: classic
+    routing-key: notification.event
+    consumer-enabled: true

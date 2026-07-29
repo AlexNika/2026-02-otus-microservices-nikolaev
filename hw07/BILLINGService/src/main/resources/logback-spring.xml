@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+    <property name="LOGS" value="./logs" />
+
+    <!-- Appender для консоли -->
+    <appender name="STDOUT" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder>
+            <pattern>%d{yyyy-MM-dd HH:mm:ss} [%thread] %highlight(%-5level) %cyan(%logger{36}) traceId=%X{traceId:-} spanId=%X{spanId:-} - %msg%n</pattern>
+        </encoder>
+    </appender>
+
+    <!-- Appender для файла с ротацией -->
+    <appender name="RollingFile" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>${LOGS}/billing-service.log</file>
+        <encoder class="ch.qos.logback.classic.encoder.PatternLayoutEncoder">
+            <pattern>%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} traceId=%X{traceId:-} spanId=%X{spanId:-} - %msg%n</pattern>
+        </encoder>
+        <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
+            <fileNamePattern>${LOGS}/archived/billing-service-%d{yyyy-MM-dd}.%i.log</fileNamePattern>
+            <maxFileSize>10MB</maxFileSize>
+            <maxHistory>60</maxHistory>
+            <totalSizeCap>2GB</totalSizeCap>
+        </rollingPolicy>
+    </appender>
+
+    <!-- Корневой логгер -->
+    <root level="info">
+        <appender-ref ref="RollingFile" />
+        <appender-ref ref="STDOUT" />
+    </root>
+
+    <!-- Логгер для вашего пакета -->
+    <logger name="ru.otus.hw" level="info" additivity="false">
+        <appender-ref ref="RollingFile" />
+        <appender-ref ref="STDOUT" />
+    </logger>
+</configuration>

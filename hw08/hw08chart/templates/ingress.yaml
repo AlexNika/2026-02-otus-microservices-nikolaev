@@ -1,0 +1,100 @@
+{{- if .Values.ingress.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "hw08chart.fullname" . }}-ingress
+  labels:
+    {{ include "hw08chart.labels" . | nindent 4 }}
+  annotations:
+    nginx.ingress.kubernetes.io/ssl-redirect: "false"
+spec:
+  ingressClassName: {{ .Values.ingress.className }}
+  rules:
+    - host: {{ .Values.ingress.host | quote }}
+      http:
+        paths:
+          - path: /api/v1/auth
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "hw08chart.fullname" . }}-user-service
+                port:
+                  number: {{ (index .Values.services "user-service").port }}
+          - path: /api/v1/user
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "hw08chart.fullname" . }}-user-service
+                port:
+                  number: {{ (index .Values.services "user-service").port }}
+          - path: /api/v1/profile
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "hw08chart.fullname" . }}-user-service
+                port:
+                  number: {{ (index .Values.services "user-service").port }}
+          - path: /api/v1/roles
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "hw08chart.fullname" . }}-user-service
+                port:
+                  number: {{ (index .Values.services "user-service").port }}
+          - path: /api/v1/account
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "hw08chart.fullname" . }}-billing-service
+                port:
+                  number: {{ (index .Values.services "billing-service").port }}
+          - path: /api/v1/order
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "hw08chart.fullname" . }}-order-service
+                port:
+                  number: {{ (index .Values.services "order-service").port }}
+          - path: /api/v1/notification
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "hw08chart.fullname" . }}-notification-service
+                port:
+                  number: {{ (index .Values.services "notification-service").port }}
+          - path: /api/v1/products
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "hw08chart.fullname" . }}-warehouse-service
+                port:
+                  number: {{ (index .Values.services "warehouse-service").port }}
+          - path: /api/v1/stocks
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "hw08chart.fullname" . }}-warehouse-service
+                port:
+                  number: {{ (index .Values.services "warehouse-service").port }}
+          - path: /api/v1/delivery
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "hw08chart.fullname" . }}-delivery-service
+                port:
+                  number: {{ (index .Values.services "delivery-service").port }}
+          - path: /internal/products
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "hw08chart.fullname" . }}-warehouse-service
+                port:
+                  number: {{ (index .Values.services "warehouse-service").port }}
+          - path: /internal/delivery
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "hw08chart.fullname" . }}-delivery-service
+                port:
+                  number: {{ (index .Values.services "delivery-service").port }}
+{{- end }}

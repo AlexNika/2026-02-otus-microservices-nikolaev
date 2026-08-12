@@ -1,0 +1,59 @@
+{{- if .Values.ingress.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "hw08chart.fullname" . }}-health-ingress
+  labels:
+    {{ include "hw08chart.labels" . | nindent 4 }}
+  annotations:
+    nginx.ingress.kubernetes.io/ssl-redirect: "false"
+    nginx.ingress.kubernetes.io/rewrite-target: /actuator/health
+spec:
+  ingressClassName: {{ .Values.ingress.className }}
+  rules:
+    - host: {{ .Values.ingress.host | quote }}
+      http:
+        paths:
+          - path: /health/user
+            pathType: Exact
+            backend:
+              service:
+                name: {{ include "hw08chart.fullname" . }}-user-service
+                port:
+                  number: {{ (index .Values.services "user-service").port }}
+          - path: /health/billing
+            pathType: Exact
+            backend:
+              service:
+                name: {{ include "hw08chart.fullname" . }}-billing-service
+                port:
+                  number: {{ (index .Values.services "billing-service").port }}
+          - path: /health/order
+            pathType: Exact
+            backend:
+              service:
+                name: {{ include "hw08chart.fullname" . }}-order-service
+                port:
+                  number: {{ (index .Values.services "order-service").port }}
+          - path: /health/notification
+            pathType: Exact
+            backend:
+              service:
+                name: {{ include "hw08chart.fullname" . }}-notification-service
+                port:
+                  number: {{ (index .Values.services "notification-service").port }}
+          - path: /health/warehouse
+            pathType: Exact
+            backend:
+              service:
+                name: {{ include "hw08chart.fullname" . }}-warehouse-service
+                port:
+                  number: {{ (index .Values.services "warehouse-service").port }}
+          - path: /health/delivery
+            pathType: Exact
+            backend:
+              service:
+                name: {{ include "hw08chart.fullname" . }}-delivery-service
+                port:
+                  number: {{ (index .Values.services "delivery-service").port }}
+{{- end }}

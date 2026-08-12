@@ -1,0 +1,830 @@
+{
+  "info": {
+    "_postman_id": "7f3c2b90-6a1d-4e57-9c31-0b2a8d4e5f65",
+    "name": "OTUS - Microservices HomeWork #8 - Order cancel CONFLICT (k8s)",
+    "description": "E2E сценарий ДЗ №8: отмена заказа с уже подтверждёнными downstream-резервами.\n1. Товар со стоком 20, регистрация пользователя, депозит 100 руб.\n2. Заказ qty=1 -> 201 PLACED (резервы склада и доставки подтверждены синхронно внутри саги).\n3. POST /order/{id}/cancel -> 409 ORDER_STATE_CONFLICT.\n4. Заказ остаётся PLACED, резервы склада и доставки остаются CONFIRMED.\nПримечание: баланс после неудачной отмены не проверяется (известная особенность реализации: refund выполняется до проверки downstream-резервов). Уведомлений cancel не публикует — опроса нет.\n\nЗапуск: из hw08/ выполнить scripts/06-run-postman-k8s.ps1 (newman), либо вручную: newman run postman/k8s/<collection>.json -e postman/k8s/k8s.postman_environment.json.\n\nПредпосылки: запущен minikube и установлен helm chart hw08chart (scripts/03-helm-hw08-install.ps1); домен arch.homework резолвится на IP ingress-контроллера (minikube tunnel и/или запись в файле hosts). Локальный туннель на 127.0.0.1 не требуется.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "01 - Health USERService",
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "exec": [
+              "// Шаг 00: уникальные данные прогона, чтобы коллекции можно было запускать повторно",
+              "var runBase = Date.now();",
+              "var rand = Math.floor(Math.random() * 100000);",
+              "pm.collectionVariables.set(\"runBase\", String(runBase));",
+              "pm.collectionVariables.set(\"rand\", String(rand));",
+              "",
+              "// Уникальная дата доставки: завтра + (runBase % 28) дней.",
+              "// Собираем из локальных getFullYear/getMonth/getDate — toISOString() сдвигает дату из-за UTC.",
+              "var delivery = new Date();",
+              "delivery.setDate(delivery.getDate() + 1 + (runBase % 28));",
+              "function pad(n) { return n < 10 ? \"0\" + n : \"\" + n; }",
+              "var deliveryDate = delivery.getFullYear() + \"-\" + pad(delivery.getMonth() + 1) + \"-\" + pad(delivery.getDate());",
+              "pm.collectionVariables.set(\"deliveryDate\", deliveryDate);",
+              "",
+              "pm.collectionVariables.set(\"slotStart\", \"12:00\");",
+              "pm.collectionVariables.set(\"slotEnd\", \"14:00\");",
+              "",
+              "pm.collectionVariables.set(\"sku\", \"SKU-\" + runBase + \"-\" + rand);",
+              "pm.collectionVariables.set(\"manufacturerArticle\", \"ART-\" + runBase + \"-\" + rand);",
+              "pm.collectionVariables.set(\"userName\", \"user\" + runBase + \"_\" + rand);",
+              "pm.collectionVariables.set(\"userEmail\", \"user\" + runBase + \"_\" + rand + \"@test.com\");",
+              "console.log(\"HW8 run: base=\" + runBase + \", deliveryDate=\" + deliveryDate + \", sku=\" + pm.collectionVariables.get(\"sku\"));"
+            ],
+            "type": "text/javascript"
+          }
+        },
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Status code is 200\", function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.test(\"Body has status UP\", function () {",
+              "    var jsonData = pm.response.json();",
+              "    pm.expect(jsonData.status).to.eql(\"UP\");",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/health/user",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "health",
+            "user"
+          ]
+        },
+        "description": "Проверка, что USERService запущен в кластере Kubernetes (health-ingress, маршрут /health/user)."
+      },
+      "response": []
+    },
+    {
+      "name": "02 - Health BILLINGService",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Status code is 200\", function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.test(\"Body has status UP\", function () {",
+              "    var jsonData = pm.response.json();",
+              "    pm.expect(jsonData.status).to.eql(\"UP\");",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/health/billing",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "health",
+            "billing"
+          ]
+        },
+        "description": "Проверка, что BILLINGService запущен в кластере Kubernetes (health-ingress, маршрут /health/billing)."
+      },
+      "response": []
+    },
+    {
+      "name": "03 - Health ORDERService",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Status code is 200\", function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.test(\"Body has status UP\", function () {",
+              "    var jsonData = pm.response.json();",
+              "    pm.expect(jsonData.status).to.eql(\"UP\");",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/health/order",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "health",
+            "order"
+          ]
+        },
+        "description": "Проверка, что ORDERService запущен в кластере Kubernetes (health-ingress, маршрут /health/order)."
+      },
+      "response": []
+    },
+    {
+      "name": "04 - Health NOTIFICATIONService",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Status code is 200\", function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.test(\"Body has status UP\", function () {",
+              "    var jsonData = pm.response.json();",
+              "    pm.expect(jsonData.status).to.eql(\"UP\");",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/health/notification",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "health",
+            "notification"
+          ]
+        },
+        "description": "Проверка, что NOTIFICATIONService запущен в кластере Kubernetes (health-ingress, маршрут /health/notification)."
+      },
+      "response": []
+    },
+    {
+      "name": "05 - Health WAREHOUSEService",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Status code is 200\", function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.test(\"Body has status UP\", function () {",
+              "    var jsonData = pm.response.json();",
+              "    pm.expect(jsonData.status).to.eql(\"UP\");",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/health/warehouse",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "health",
+            "warehouse"
+          ]
+        },
+        "description": "Проверка, что WAREHOUSEService запущен в кластере Kubernetes (health-ingress, маршрут /health/warehouse)."
+      },
+      "response": []
+    },
+    {
+      "name": "06 - Health DELIVERYService",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Status code is 200\", function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.test(\"Body has status UP\", function () {",
+              "    var jsonData = pm.response.json();",
+              "    pm.expect(jsonData.status).to.eql(\"UP\");",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/health/delivery",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "health",
+            "delivery"
+          ]
+        },
+        "description": "Проверка, что DELIVERYService запущен в кластере Kubernetes (health-ingress, маршрут /health/delivery)."
+      },
+      "response": []
+    },
+    {
+      "name": "07 - Set courier capacity for deliveryDate (courierCount=1)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Status code is 200\", function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "console.log(\"Courier capacity=1 set for \" + pm.collectionVariables.get(\"deliveryDate\") + \" (slots 10-12/12-14/14-16/16-18)\");"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "PUT",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n    \"courierCount\": 1\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/delivery/courier-capacity/{{deliveryDate}}",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "delivery",
+            "courier-capacity",
+            "{{deliveryDate}}"
+          ]
+        },
+        "description": "Создание ёмкости курьеров на дату доставки: courierCount=1, создаются дефолтные слоты 10-12, 12-14, 14-16, 16-18."
+      },
+      "response": []
+    },
+    {
+      "name": "08 - Create product (availableQuantity=20)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Status code is 201\", function () {",
+              "    pm.response.to.have.status(201);",
+              "});",
+              "",
+              "pm.test(\"Response body has id field\", function () {",
+              "    var jsonData = pm.response.json();",
+              "    pm.expect(jsonData).to.have.property(\"id\");",
+              "    pm.expect(jsonData.id).to.be.a(\"number\");",
+              "});",
+              "",
+              "var jsonData = pm.response.json();",
+              "pm.collectionVariables.set(\"productId\", jsonData.id);",
+              "console.log(\"Product created with ID: \" + jsonData.id);"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n    \"manufacturerArticle\": \"{{manufacturerArticle}}\",\n    \"sku\": \"{{sku}}\",\n    \"name\": \"HW8 test product\",\n    \"description\": \"HW8 postman scenario product\",\n    \"price\": 10.00,\n    \"productStock\": {\n        \"availableQuantity\": 20,\n        \"reservedQuantity\": 0\n    }\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/products",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "products"
+          ]
+        },
+        "description": "Создание товара в WAREHOUSEService."
+      },
+      "response": []
+    },
+    {
+      "name": "09 - Register user (userId, billing account auto-created)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Status code is 201\", function () {",
+              "    pm.response.to.have.status(201);",
+              "});",
+              "",
+              "pm.test(\"Response body has id field\", function () {",
+              "    var jsonData = pm.response.json();",
+              "    pm.expect(jsonData).to.have.property(\"id\");",
+              "    pm.expect(jsonData.id).to.be.a(\"number\");",
+              "});",
+              "",
+              "var jsonData = pm.response.json();",
+              "pm.collectionVariables.set(\"userId\", jsonData.id);",
+              "console.log(\"User registered with ID: \" + jsonData.id + \" (billing account auto-created)\");",
+              "",
+              "pm.test(\"User data matches sent data\", function () {",
+              "    var jsonData = pm.response.json();",
+              "    pm.expect(jsonData.userName).to.eql(pm.collectionVariables.get(\"userName\"));",
+              "    pm.expect(jsonData.email).to.eql(pm.collectionVariables.get(\"userEmail\"));",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n    \"userName\": \"{{userName}}\",\n    \"firstName\": \"First_userId\",\n    \"lastName\": \"Last_userId\",\n    \"email\": \"{{userEmail}}\",\n    \"password\": \"Password1!\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/auth/register",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "auth",
+            "register"
+          ]
+        },
+        "description": "Регистрация нового пользователя. USERService автоматически создаёт биллинг-аккаунт с балансом 0."
+      },
+      "response": []
+    },
+    {
+      "name": "10 - Get billing account (Account auto-created with zero balance)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Status code is 200\", function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.test(\"Account auto-created with zero balance\", function () {",
+              "    var jsonData = pm.response.json();",
+              "    pm.expect(Number(jsonData.userId)).to.eql(Number(pm.collectionVariables.get(\"userId\")));",
+              "    pm.expect(Number(jsonData.balance)).to.eql(0);",
+              "    pm.expect(jsonData.enabled).to.be.true;",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/account/user/{{userId}}",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "account",
+            "user",
+            "{{userId}}"
+          ]
+        },
+        "description": "Получение биллинг-аккаунта пользователя по userId."
+      },
+      "response": []
+    },
+    {
+      "name": "11 - Deposit 100 RUB (userId)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Status code is 200\", function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.test(\"Balance is 100 after deposit\", function () {",
+              "    var jsonData = pm.response.json();",
+              "    pm.expect(Number(jsonData.newBalance)).to.eql(100);",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n    \"amount\": 100\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/account/{{userId}}/deposit",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "account",
+            "{{userId}}",
+            "deposit"
+          ]
+        },
+        "description": "Пополнение баланса пользователя на 100 руб."
+      },
+      "response": []
+    },
+    {
+      "name": "12 - Create order (qty=1) -> 201 PLACED",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Status code is 201\", function () {",
+              "    pm.response.to.have.status(201);",
+              "});",
+              "",
+              "pm.test(\"Order is PLACED\", function () {",
+              "    var jsonData = pm.response.json();",
+              "    pm.expect(jsonData.orderStatus).to.eql(\"PLACED\");",
+              "    pm.expect(Number(jsonData.userId)).to.eql(Number(pm.collectionVariables.get(\"userId\")));",
+              "    pm.expect(Number(jsonData.productId)).to.eql(Number(pm.collectionVariables.get(\"productId\")));",
+              "});",
+              "",
+              "var jsonData = pm.response.json();",
+              "pm.collectionVariables.set(\"orderId\", jsonData.id);",
+              "console.log(\"Order created with ID: \" + jsonData.id + \", status=\" + jsonData.orderStatus);"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n    \"userId\": {{userId}},\n    \"price\": 10.0000,\n    \"description\": \"HW8 postman scenario order\",\n    \"productId\": {{productId}},\n    \"quantity\": 1,\n    \"deliveryDate\": \"{{deliveryDate}}\",\n    \"slotStart\": \"{{slotStart}}\",\n    \"slotEnd\": \"{{slotEnd}}\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/order",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "order"
+          ]
+        },
+        "description": "Создание заказа. Сага BILLING -> WAREHOUSE -> DELIVERY проходит синхронно."
+      },
+      "response": []
+    },
+    {
+      "name": "13 - Cancel order -> 409 ORDER_STATE_CONFLICT",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Status code is 409\", function () {",
+              "    pm.response.to.have.status(409);",
+              "});",
+              "",
+              "pm.test(\"Error code is ORDER_STATE_CONFLICT\", function () {",
+              "    var jsonData = pm.response.json();",
+              "    pm.expect(jsonData.code).to.eql(\"ORDER_STATE_CONFLICT\");",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/order/{{orderId}}/cancel",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "order",
+            "{{orderId}}",
+            "cancel"
+          ]
+        },
+        "description": "Отмена заказа с уже подтверждёнными downstream-резервами запрещена: 409 ORDER_STATE_CONFLICT."
+      },
+      "response": []
+    },
+    {
+      "name": "14 - Get order by ID (status PLACED)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Status code is 200\", function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.test(\"Order status is PLACED\", function () {",
+              "    var jsonData = pm.response.json();",
+              "    pm.expect(jsonData.orderStatus).to.eql(\"PLACED\");",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/order/{{orderId}}",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "order",
+            "{{orderId}}"
+          ]
+        },
+        "description": "Получение заказа по ID."
+      },
+      "response": []
+    },
+    {
+      "name": "15 - Warehouse reservations -> all CONFIRMED",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Status code is 200\", function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.test(\"All warehouse reservations are CONFIRMED\", function () {",
+              "    var jsonData = pm.response.json();",
+              "    pm.expect(jsonData.reservations).to.be.an(\"array\").that.is.not.empty;",
+              "    jsonData.reservations.forEach(function (r) {",
+              "        pm.expect(r.reservationStatus).to.eql(\"CONFIRMED\");",
+              "    });",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "X-Internal-API-Key",
+            "value": "{{internalApiKey}}"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/internal/products/reservations/{{orderId}}",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "internal",
+            "products",
+            "reservations",
+            "{{orderId}}"
+          ]
+        },
+        "description": "Все резервы склада по заказу подтверждены (CONFIRMED)."
+      },
+      "response": []
+    },
+    {
+      "name": "16 - Delivery reservation -> CONFIRMED",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Status code is 200\", function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.test(\"Delivery reservation status is CONFIRMED\", function () {",
+              "    var jsonData = pm.response.json();",
+              "    pm.expect(jsonData.status).to.eql(\"CONFIRMED\");",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "X-Internal-API-Key",
+            "value": "{{internalApiKey}}"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/internal/delivery/reservations/{{orderId}}",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "internal",
+            "delivery",
+            "reservations",
+            "{{orderId}}"
+          ]
+        },
+        "description": "Резерв доставки по заказу подтверждён (CONFIRMED)."
+      },
+      "response": []
+    }
+  ],
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://arch.homework",
+      "type": "string"
+    },
+    {
+      "key": "internalApiKey",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "runBase",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "rand",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "deliveryDate",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "slotStart",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "slotEnd",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "sku",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "manufacturerArticle",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "productId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "userName",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "userEmail",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "userId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "orderId",
+      "value": "",
+      "type": "string"
+    }
+  ]
+}

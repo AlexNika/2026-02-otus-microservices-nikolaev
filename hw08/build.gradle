@@ -1,0 +1,29 @@
+plugins {
+    id 'java'
+    id 'com.diffplug.spotless' version '8.8.0'
+}
+
+spotless {
+    java {
+        palantirJavaFormat()
+//        googleJavaFormat()
+    }
+}
+
+group = 'ru.otus.hw'
+version = '0.0.1-SNAPSHOT'
+
+repositories {
+    mavenLocal()
+    mavenCentral()
+}
+
+dependencies {
+    testImplementation platform('org.junit:junit-bom:6.0.0')
+    testImplementation 'org.junit.jupiter:junit-jupiter'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+
+test {
+    useJUnitPlatform()
+}

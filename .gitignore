@@ -24,6 +24,9 @@ hs_err_pid*
 replay_pid*
 
 .idea/
+.kilo/
 target/
 *.iml
 *.mvn
+/hw08/connekt.private.env.json
+/hw08/DELIVERYService/connekt.private.env.json

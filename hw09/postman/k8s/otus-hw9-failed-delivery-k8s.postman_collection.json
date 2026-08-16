@@ -1,0 +1,1204 @@
+{
+  "info": {
+    "_postman_id": "7f3c2b90-6a1d-4e57-9c31-0b2a8d4e5f64",
+    "name": "OTUS - Microservices HomeWork #9 - Order saga FAILED (delivery) (k8s)",
+    "description": "E2E сценарий ДЗ №9: отказ на шаге DELIVERY.\n1. Ёмкость курьеров на уникальную дату доставки = reservedMax + 1 (шаг-зонд 07a учитывает уже существующие резервы доставки на эту дату); товар со стоком 20; два пользователя с депозитами по 100 руб.\n2. Первый заказ (userA, самый занятый слот даты) -> 201 PLACED, занимает последнее место курьера.\n3. Второй заказ (userB, тот же слот) -> 409 DELIVERY_NO_FREE_COURIER.\n4. Компенсации: refund userB до 100, резерв склада RELEASED, сток возвращён к прежнему значению; заказ userB сохранён FAILED.\n5. NOTIFICATIONService получает событие FAILED для userB через RabbitMQ (опрос до 10 попыток).\n\nЗапуск: из hw09/ выполнить scripts/06-run-postman-k8s.ps1 (newman) — ключ X-Internal-API-Key читается из hw09/.env (или задаётся параметром -InternalApiKey) и передаётся newman через --env-var internalApiKey. Вручную: newman run postman/k8s/otus-hw9-failed-delivery-k8s.postman_collection.json -e postman/k8s/k8s.postman_environment.json --env-var internalApiKey=<ключ из hw09/.env>.\n\nПредпосылки: запущен minikube и установлен релиз hw09chart (scripts/03-helm-hw09-install.ps1); домен arch.homework резолвится на IP ingress-контроллера (minikube tunnel и/или запись в файле hosts). Локальный туннель на 127.0.0.1 не требуется.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "01 - Health USERService",
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "exec": [
+              "// Шаг 00: уникальные данные прогона, чтобы коллекции можно было запускать повторно",
+              "var runBase = Date.now();",
+              "var rand = Math.floor(Math.random() * 100000);",
+              "pm.collectionVariables.set(\"runBase\", String(runBase));",
+              "pm.collectionVariables.set(\"rand\", String(rand));",
+              "",
+              "// Уникальная дата доставки: завтра + (runBase % 28) дней.",
+              "// Собираем из локальных getFullYear/getMonth/getDate — toISOString() сдвигает дату из-за UTC.",
+              "var delivery = new Date();",
+              "delivery.setDate(delivery.getDate() + 1 + (runBase % 28));",
+              "function pad(n) { return n < 10 ? \"0\" + n : \"\" + n; }",
+              "var deliveryDate = delivery.getFullYear() + \"-\" + pad(delivery.getMonth() + 1) + \"-\" + pad(delivery.getDate());",
+              "pm.collectionVariables.set(\"deliveryDate\", deliveryDate);",
+              "",
+              "pm.collectionVariables.set(\"slotStart\", \"14:00\");",
+              "pm.collectionVariables.set(\"slotEnd\", \"16:00\");",
+              "",
+              "pm.collectionVariables.set(\"sku\", \"SKU-\" + runBase + \"-\" + rand);",
+              "pm.collectionVariables.set(\"manufacturerArticle\", \"ART-\" + runBase + \"-\" + rand);",
+              "pm.collectionVariables.set(\"userAName\", \"usera\" + runBase + \"_\" + rand);",
+              "pm.collectionVariables.set(\"userAEmail\", \"usera\" + runBase + \"_\" + rand + \"@test.com\");",
+              "pm.collectionVariables.set(\"userBName\", \"userb\" + runBase + \"_\" + rand);",
+              "pm.collectionVariables.set(\"userBEmail\", \"userb\" + runBase + \"_\" + rand + \"@test.com\");",
+              "console.log(\"HW9 run: base=\" + runBase + \", deliveryDate=\" + deliveryDate + \", sku=\" + pm.collectionVariables.get(\"sku\"));"
+            ],
+            "type": "text/javascript"
+          }
+        },
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Status code is 200\", function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.test(\"Body has status UP\", function () {",
+              "    var jsonData = pm.response.json();",
+              "    pm.expect(jsonData.status).to.eql(\"UP\");",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/health/user",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "health",
+            "user"
+          ]
+        },
+        "description": "Проверка, что USERService запущен в кластере Kubernetes (health-ingress, маршрут /health/user)."
+      },
+      "response": []
+    },
+    {
+      "name": "02 - Health BILLINGService",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Status code is 200\", function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.test(\"Body has status UP\", function () {",
+              "    var jsonData = pm.response.json();",
+              "    pm.expect(jsonData.status).to.eql(\"UP\");",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/health/billing",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "health",
+            "billing"
+          ]
+        },
+        "description": "Проверка, что BILLINGService запущен в кластере Kubernetes (health-ingress, маршрут /health/billing)."
+      },
+      "response": []
+    },
+    {
+      "name": "03 - Health ORDERService",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Status code is 200\", function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.test(\"Body has status UP\", function () {",
+              "    var jsonData = pm.response.json();",
+              "    pm.expect(jsonData.status).to.eql(\"UP\");",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/health/order",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "health",
+            "order"
+          ]
+        },
+        "description": "Проверка, что ORDERService запущен в кластере Kubernetes (health-ingress, маршрут /health/order)."
+      },
+      "response": []
+    },
+    {
+      "name": "04 - Health NOTIFICATIONService",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Status code is 200\", function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.test(\"Body has status UP\", function () {",
+              "    var jsonData = pm.response.json();",
+              "    pm.expect(jsonData.status).to.eql(\"UP\");",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/health/notification",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "health",
+            "notification"
+          ]
+        },
+        "description": "Проверка, что NOTIFICATIONService запущен в кластере Kubernetes (health-ingress, маршрут /health/notification)."
+      },
+      "response": []
+    },
+    {
+      "name": "05 - Health WAREHOUSEService",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Status code is 200\", function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.test(\"Body has status UP\", function () {",
+              "    var jsonData = pm.response.json();",
+              "    pm.expect(jsonData.status).to.eql(\"UP\");",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/health/warehouse",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "health",
+            "warehouse"
+          ]
+        },
+        "description": "Проверка, что WAREHOUSEService запущен в кластере Kubernetes (health-ingress, маршрут /health/warehouse)."
+      },
+      "response": []
+    },
+    {
+      "name": "06 - Health DELIVERYService",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Status code is 200\", function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.test(\"Body has status UP\", function () {",
+              "    var jsonData = pm.response.json();",
+              "    pm.expect(jsonData.status).to.eql(\"UP\");",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/health/delivery",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "health",
+            "delivery"
+          ]
+        },
+        "description": "Проверка, что DELIVERYService запущен в кластере Kubernetes (health-ingress, маршрут /health/delivery)."
+      },
+      "response": []
+    },
+    {
+      "name": "07a - Probe existing courier reservations",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "// Антиколлизия: на этой дате могли остаться резервы доставки от прошлых прогонов.",
+              "// Читаем фактическую занятость слотов и пересчитываем courierCount.",
+              "// Целевой слот обязан быть самым занятым: S4a занимает последнее место, S4b падает.",
+              "pm.test(\"Probe response is 200 or 404\", function () {",
+              "    pm.expect(pm.response.code).to.be.oneOf([200, 404]);",
+              "});",
+              "",
+              "var N = 1; // S4a займёт последнее место в слоте, второму заказу мест не останется",
+              "",
+              "if (pm.response.code === 404) {",
+              "    // Ёмкость на дату ещё не задана: резервов нет, слот остаётся как настроен в шаге 01.",
+              "    pm.collectionVariables.set(\"reservedMax\", \"0\");",
+              "    pm.collectionVariables.set(\"courierCount\", String(N));",
+              "    console.log(\"Capacity probe: 404, reservedMax=0, courierCount=\" + N",
+              "        + \", slot=\" + pm.collectionVariables.get(\"slotStart\") + \"-\" + pm.collectionVariables.get(\"slotEnd\"));",
+              "} else {",
+              "    var jsonData = pm.response.json();",
+              "    var slots = jsonData.slots || [];",
+              "    pm.test(\"Capacity response has slots\", function () {",
+              "        pm.expect(slots).to.be.an(\"array\").that.is.not.empty;",
+              "    });",
+              "    var busiest = slots.reduce(function (a, b) {",
+              "        return (b.reservedCount || 0) > (a.reservedCount || 0) ? b : a;",
+              "    });",
+              "    var reservedMax = busiest.reservedCount || 0;",
+              "    pm.collectionVariables.set(\"slotStart\", busiest.slotStart);",
+              "    pm.collectionVariables.set(\"slotEnd\", busiest.slotEnd);",
+              "    pm.collectionVariables.set(\"reservedMax\", String(reservedMax));",
+              "    pm.collectionVariables.set(\"courierCount\", String(reservedMax + N));",
+              "    console.log(\"Capacity probe: 200, busiest slot \" + busiest.slotStart + \"-\" + busiest.slotEnd",
+              "        + \", reservedMax=\" + reservedMax + \", courierCount=\" + (reservedMax + N));",
+              "}"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/delivery/courier-capacity/{{deliveryDate}}",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "delivery",
+            "courier-capacity",
+            "{{deliveryDate}}"
+          ]
+        },
+        "description": "Зонд: какие резервы доставки уже есть на deliveryDate. 404 — ёмкость на дату ещё не задавалась (резервов нет, слот как в шаге 01). 200 — берём самый занятый слот и пересчитываем courierCount = reservedMax + 1."
+      },
+      "response": []
+    },
+    {
+      "name": "07 - Set courier capacity for deliveryDate (courierCount из зонда)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Status code is 200\", function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "console.log(\"Courier capacity=\" + pm.collectionVariables.get(\"courierCount\") + \" set for \" + pm.collectionVariables.get(\"deliveryDate\") + \" (probe: reservedMax=\" + pm.collectionVariables.get(\"reservedMax\") + \")\");"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "PUT",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n    \"courierCount\": {{courierCount}}\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/delivery/courier-capacity/{{deliveryDate}}",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "delivery",
+            "courier-capacity",
+            "{{deliveryDate}}"
+          ]
+        },
+        "description": "Установка ёмкости курьеров на дату доставки: courierCount = reservedMax + 1 из шага-зонда 07a (антиколлизия с резервами прошлых прогонов); при отсутствии слотов создаются дефолтные 10-12, 12-14, 14-16, 16-18."
+      },
+      "response": []
+    },
+    {
+      "name": "08 - Create product (availableQuantity=20)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Status code is 201\", function () {",
+              "    pm.response.to.have.status(201);",
+              "});",
+              "",
+              "pm.test(\"Response body has id field\", function () {",
+              "    var jsonData = pm.response.json();",
+              "    pm.expect(jsonData).to.have.property(\"id\");",
+              "    pm.expect(jsonData.id).to.be.a(\"number\");",
+              "});",
+              "",
+              "var jsonData = pm.response.json();",
+              "pm.collectionVariables.set(\"productId\", jsonData.id);",
+              "console.log(\"Product created with ID: \" + jsonData.id);"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n    \"manufacturerArticle\": \"{{manufacturerArticle}}\",\n    \"sku\": \"{{sku}}\",\n    \"name\": \"HW9 test product\",\n    \"description\": \"HW9 postman scenario product\",\n    \"price\": 10.00,\n    \"productStock\": {\n        \"availableQuantity\": 20,\n        \"reservedQuantity\": 0\n    }\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/products",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "products"
+          ]
+        },
+        "description": "Создание товара в WAREHOUSEService."
+      },
+      "response": []
+    },
+    {
+      "name": "09 - Register user (userAId, billing account auto-created)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Status code is 201\", function () {",
+              "    pm.response.to.have.status(201);",
+              "});",
+              "",
+              "pm.test(\"Response body has id field\", function () {",
+              "    var jsonData = pm.response.json();",
+              "    pm.expect(jsonData).to.have.property(\"id\");",
+              "    pm.expect(jsonData.id).to.be.a(\"number\");",
+              "});",
+              "",
+              "var jsonData = pm.response.json();",
+              "pm.collectionVariables.set(\"userAId\", jsonData.id);",
+              "console.log(\"User registered with ID: \" + jsonData.id + \" (billing account auto-created)\");",
+              "",
+              "pm.test(\"User data matches sent data\", function () {",
+              "    var jsonData = pm.response.json();",
+              "    pm.expect(jsonData.userName).to.eql(pm.collectionVariables.get(\"userAName\"));",
+              "    pm.expect(jsonData.email).to.eql(pm.collectionVariables.get(\"userAEmail\"));",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n    \"userName\": \"{{userAName}}\",\n    \"firstName\": \"First_userAId\",\n    \"lastName\": \"Last_userAId\",\n    \"email\": \"{{userAEmail}}\",\n    \"password\": \"Password1!\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/auth/register",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "auth",
+            "register"
+          ]
+        },
+        "description": "Регистрация нового пользователя. USERService автоматически создаёт биллинг-аккаунт с балансом 0."
+      },
+      "response": []
+    },
+    {
+      "name": "10 - Deposit 100 RUB (userAId)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Status code is 200\", function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.test(\"Balance is 100 after deposit\", function () {",
+              "    var jsonData = pm.response.json();",
+              "    pm.expect(Number(jsonData.newBalance)).to.eql(100);",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n    \"amount\": 100\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/account/{{userAId}}/deposit",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "account",
+            "{{userAId}}",
+            "deposit"
+          ]
+        },
+        "description": "Пополнение баланса пользователя на 100 руб."
+      },
+      "response": []
+    },
+    {
+      "name": "11 - Register user (userBId, billing account auto-created)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Status code is 201\", function () {",
+              "    pm.response.to.have.status(201);",
+              "});",
+              "",
+              "pm.test(\"Response body has id field\", function () {",
+              "    var jsonData = pm.response.json();",
+              "    pm.expect(jsonData).to.have.property(\"id\");",
+              "    pm.expect(jsonData.id).to.be.a(\"number\");",
+              "});",
+              "",
+              "var jsonData = pm.response.json();",
+              "pm.collectionVariables.set(\"userBId\", jsonData.id);",
+              "console.log(\"User registered with ID: \" + jsonData.id + \" (billing account auto-created)\");",
+              "",
+              "pm.test(\"User data matches sent data\", function () {",
+              "    var jsonData = pm.response.json();",
+              "    pm.expect(jsonData.userName).to.eql(pm.collectionVariables.get(\"userBName\"));",
+              "    pm.expect(jsonData.email).to.eql(pm.collectionVariables.get(\"userBEmail\"));",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n    \"userName\": \"{{userBName}}\",\n    \"firstName\": \"First_userBId\",\n    \"lastName\": \"Last_userBId\",\n    \"email\": \"{{userBEmail}}\",\n    \"password\": \"Password1!\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/auth/register",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "auth",
+            "register"
+          ]
+        },
+        "description": "Регистрация нового пользователя. USERService автоматически создаёт биллинг-аккаунт с балансом 0."
+      },
+      "response": []
+    },
+    {
+      "name": "12 - Deposit 100 RUB (userBId)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Status code is 200\", function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.test(\"Balance is 100 after deposit\", function () {",
+              "    var jsonData = pm.response.json();",
+              "    pm.expect(Number(jsonData.newBalance)).to.eql(100);",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n    \"amount\": 100\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/account/{{userBId}}/deposit",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "account",
+            "{{userBId}}",
+            "deposit"
+          ]
+        },
+        "description": "Пополнение баланса пользователя на 100 руб."
+      },
+      "response": []
+    },
+    {
+      "name": "13 - Create order (qty=1) -> 201 PLACED",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Status code is 201\", function () {",
+              "    pm.response.to.have.status(201);",
+              "});",
+              "",
+              "pm.test(\"Order is PLACED\", function () {",
+              "    var jsonData = pm.response.json();",
+              "    pm.expect(jsonData.orderStatus).to.eql(\"PLACED\");",
+              "    pm.expect(Number(jsonData.userId)).to.eql(Number(pm.collectionVariables.get(\"userAId\")));",
+              "    pm.expect(Number(jsonData.productId)).to.eql(Number(pm.collectionVariables.get(\"productId\")));",
+              "});",
+              "",
+              "var jsonData = pm.response.json();",
+              "pm.collectionVariables.set(\"orderAId\", jsonData.id);",
+              "console.log(\"Order created with ID: \" + jsonData.id + \", status=\" + jsonData.orderStatus);"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n    \"userId\": {{userAId}},\n    \"price\": 10.0000,\n    \"description\": \"HW9 postman scenario order\",\n    \"productId\": {{productId}},\n    \"quantity\": 1,\n    \"deliveryDate\": \"{{deliveryDate}}\",\n    \"slotStart\": \"{{slotStart}}\",\n    \"slotEnd\": \"{{slotEnd}}\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/order",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "order"
+          ]
+        },
+        "description": "Создание заказа. Сага BILLING -> WAREHOUSE -> DELIVERY проходит синхронно. Занимает последнее место курьера в целевом слоте (courierCount = reservedMax + 1)."
+      },
+      "response": []
+    },
+    {
+      "name": "14 - Snapshot availableQuantity before failed order",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Status code is 200\", function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "var jsonData = pm.response.json();",
+              "pm.collectionVariables.set(\"availableBefore\", Number(jsonData.availableQuantity));",
+              "console.log(\"availableBefore=\" + pm.collectionVariables.get(\"availableBefore\"));"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/products/{{productId}}/stocks",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "products",
+            "{{productId}}",
+            "stocks"
+          ]
+        },
+        "description": "Запоминаем доступный остаток до второй (падающей) попытки заказа."
+      },
+      "response": []
+    },
+    {
+      "name": "15 - Create order -> 409 DELIVERY_NO_FREE_COURIER",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Status code is 409\", function () {",
+              "    pm.response.to.have.status(409);",
+              "});",
+              "",
+              "pm.test(\"Error code is DELIVERY_NO_FREE_COURIER\", function () {",
+              "    var jsonData = pm.response.json();",
+              "    pm.expect(jsonData.code).to.eql(\"DELIVERY_NO_FREE_COURIER\");",
+              "    pm.expect(Number(jsonData.status)).to.eql(409);",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n    \"userId\": {{userBId}},\n    \"price\": 10.0000,\n    \"description\": \"HW9 postman scenario order\",\n    \"productId\": {{productId}},\n    \"quantity\": 1,\n    \"deliveryDate\": \"{{deliveryDate}}\",\n    \"slotStart\": \"{{slotStart}}\",\n    \"slotEnd\": \"{{slotEnd}}\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/order",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "order"
+          ]
+        },
+        "description": "Создание заказа, ожидаемый отказ саги с кодом DELIVERY_NO_FREE_COURIER."
+      },
+      "response": []
+    },
+    {
+      "name": "16 - Get user orders -> find FAILED order",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Status code is 200\", function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "var orders = pm.response.json();",
+              "pm.test(\"User has a FAILED order\", function () {",
+              "    pm.expect(orders).to.be.an(\"array\");",
+              "    var failed = orders.filter(function (o) { return o.orderStatus === \"FAILED\"; });",
+              "    pm.expect(failed.length).to.be.above(0);",
+              "});",
+              "",
+              "var failedOrder = orders.find(function (o) { return o.orderStatus === \"FAILED\"; });",
+              "if (failedOrder) {",
+              "    pm.collectionVariables.set(\"orderId\", failedOrder.id);",
+              "    console.log(\"FAILED order ID: \" + failedOrder.id);",
+              "}"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/order/user/{{userBId}}",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "order",
+            "user",
+            "{{userBId}}"
+          ]
+        },
+        "description": "Неудачный заказ сохраняется со статусом FAILED; берём его orderId для проверок компенсаций."
+      },
+      "response": []
+    },
+    {
+      "name": "17 - Get billing account (UserB balance refunded to 100)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Status code is 200\", function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.test(\"UserB balance refunded to 100\", function () {",
+              "    var jsonData = pm.response.json();",
+              "    pm.expect(Number(jsonData.userId)).to.eql(Number(pm.collectionVariables.get(\"userBId\")));",
+              "    pm.expect(Number(jsonData.balance)).to.eql(100);",
+              "    pm.expect(jsonData.enabled).to.be.true;",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/account/user/{{userBId}}",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "account",
+            "user",
+            "{{userBId}}"
+          ]
+        },
+        "description": "Получение биллинг-аккаунта пользователя по userId."
+      },
+      "response": []
+    },
+    {
+      "name": "18 - Warehouse reservations -> all RELEASED",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Status code is 200\", function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.test(\"All warehouse reservations are RELEASED\", function () {",
+              "    var jsonData = pm.response.json();",
+              "    pm.expect(jsonData.reservations).to.be.an(\"array\").that.is.not.empty;",
+              "    jsonData.reservations.forEach(function (r) {",
+              "        pm.expect(r.reservationStatus).to.eql(\"RELEASED\");",
+              "    });",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "X-Internal-API-Key",
+            "value": "{{internalApiKey}}"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/internal/products/reservations/{{orderId}}",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "internal",
+            "products",
+            "reservations",
+            "{{orderId}}"
+          ]
+        },
+        "description": "Все резервы склада по заказу отпущены компенсацией (RELEASED)."
+      },
+      "response": []
+    },
+    {
+      "name": "19 - Product stocks restored after compensation",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Status code is 200\", function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.test(\"availableQuantity restored by compensation\", function () {",
+              "    var jsonData = pm.response.json();",
+              "    var availableBefore = Number(pm.collectionVariables.get(\"availableBefore\"));",
+              "    pm.expect(Number(jsonData.availableQuantity)).to.eql(availableBefore);",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/products/{{productId}}/stocks",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "products",
+            "{{productId}}",
+            "stocks"
+          ]
+        },
+        "description": "Компенсация вернула зарезервированный сток (availableQuantity как до неудачного заказа)."
+      },
+      "response": []
+    },
+    {
+      "name": "20 - Get FAILED notification (poll)",
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "exec": [
+              "// При повторных попытках ждём 1 секунду, чтобы событие успело пройти через RabbitMQ",
+              "var attempt = parseInt(pm.collectionVariables.get(\"pollAttempt\") || \"1\", 10);",
+              "if (attempt > 1) {",
+              "    console.log(\"Waiting 1000 ms before attempt #\" + attempt + \"...\");",
+              "    setTimeout(function () {}, 1000);",
+              "}"
+            ],
+            "type": "text/javascript"
+          }
+        },
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "var maxAttempts = 10;",
+              "var attempt = parseInt(pm.collectionVariables.get(\"pollAttempt\") || \"1\", 10);",
+              "var expectedUserId = Number(pm.collectionVariables.get(\"userBId\"));",
+              "var expectedOrderId = Number(pm.collectionVariables.get(\"orderId\"));",
+              "var expectedStatus = \"FAILED\";",
+              "",
+              "pm.test(\"Status code is 200\", function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "var notifications = [];",
+              "try {",
+              "    notifications = pm.response.json();",
+              "} catch (e) {",
+              "    notifications = [];",
+              "}",
+              "",
+              "var found = notifications.some(function (n) {",
+              "    return n.notificationStatus === expectedStatus",
+              "        && Number(n.orderId) === expectedOrderId",
+              "        && Number(n.userId) === expectedUserId;",
+              "});",
+              "",
+              "if (found) {",
+              "    pm.test(expectedStatus + \" notification found for orderId \" + expectedOrderId, function () {",
+              "        pm.expect(found).to.be.true;",
+              "    });",
+              "    var notification = notifications.find(function (n) {",
+              "        return n.notificationStatus === expectedStatus && Number(n.orderId) === expectedOrderId;",
+              "    });",
+              "    console.log(expectedStatus + \" notification found: \" + JSON.stringify(notification));",
+              "    pm.collectionVariables.set(\"pollAttempt\", \"1\");",
+              "} else if (attempt < maxAttempts) {",
+              "    console.log(\"Attempt \" + attempt + \"/\" + maxAttempts + \": \" + expectedStatus + \" notification not found yet, retrying...\");",
+              "    pm.collectionVariables.set(\"pollAttempt\", String(attempt + 1));",
+              "    postman.setNextRequest(pm.info.requestName);",
+              "} else {",
+              "    pm.collectionVariables.set(\"pollAttempt\", \"1\");",
+              "    pm.test(expectedStatus + \" notification found for orderId \" + expectedOrderId, function () {",
+              "        pm.expect(found).to.be.true;",
+              "    });",
+              "}"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/notification?userId={{userBId}}",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "notification"
+          ],
+          "query": [
+            {
+              "key": "userId",
+              "value": "{{userBId}}"
+            }
+          ]
+        },
+        "description": "Опрос NOTIFICATIONService до появления уведомления FAILED по данному заказу (до 10 попыток с паузой 1 с)."
+      },
+      "response": []
+    }
+  ],
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://arch.homework",
+      "type": "string"
+    },
+    {
+      "key": "internalApiKey",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "runBase",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "rand",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "deliveryDate",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "slotStart",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "slotEnd",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "reservedMax",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "courierCount",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "sku",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "manufacturerArticle",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "productId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "userAName",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "userAEmail",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "userAId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "userBName",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "userBEmail",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "userBId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "orderAId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "orderId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "availableBefore",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "pollAttempt",
+      "value": "1",
+      "type": "string"
+    }
+  ]
+}

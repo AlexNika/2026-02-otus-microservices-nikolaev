@@ -30,3 +30,4 @@ target/
 *.mvn
 /hw08/connekt.private.env.json
 /hw08/DELIVERYService/connekt.private.env.json
+/hw09/connekt.private.env.json

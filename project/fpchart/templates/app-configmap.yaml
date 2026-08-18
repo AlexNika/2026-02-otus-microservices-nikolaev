@@ -1,0 +1,14 @@
+{{- range $name, $svc := .Values.services }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "fpchart.fullname" $ }}-{{ $name }}-config
+  labels:
+    {{ include "fpchart.labels" $ | nindent 4 }}
+    app.kubernetes.io/name: {{ $name }}
+data:
+  {{- range $key, $value := $svc.env }}
+  {{ $key }}: {{ $value | quote }}
+  {{- end }}
+---
+{{- end }}

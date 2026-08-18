@@ -1,0 +1,49 @@
+spring:
+  profiles:
+    active: dev
+  application:
+    name: DELIVERYService
+  flyway:
+    enabled: ${SPRING_FLYWAY_ENABLED:true}
+    locations: classpath:db/migration
+  datasource:
+    url: ${SPRING_DATASOURCE_URL_DELIVERY_SERVICE:jdbc:postgresql://localhost:5437/hw08db_delivery_service}
+    username: ${SPRING_DATASOURCE_USERNAME_DELIVERY_SERVICE:hw08user_delivery_service}
+    password: ${SPRING_DATASOURCE_PASSWORD_DELIVERY_SERVICE:hw08pass_delivery_service}
+    driver-class-name: org.postgresql.Driver
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+
+server:
+  port: ${SERVER_PORT_DELIVERY_SERVICE:8005}
+
+management:
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      show-details: always
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+
+logging:
+  file:
+    name: ./logs/delivery-service.log
+  config: classpath:logback-spring.xml
+  level:
+    root: INFO
+    ru.otus.hw: DEBUG
+    org.hibernate.SQL: DEBUG
+
+app:
+  internal-api-key: ${INTERNAL_API_KEY}
+  delivery:
+    default-slots:
+      - "10:00-12:00"
+      - "12:00-14:00"
+      - "14:00-16:00"
+      - "16:00-18:00"

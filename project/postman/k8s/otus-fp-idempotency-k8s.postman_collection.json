@@ -1,0 +1,1072 @@
+{
+  "info": {
+    "_postman_id": "c4e8a1d2-7b3f-4a90-b6c5-2f0d9e8a1b37",
+    "name": "OTUS - Microservices Final Project - Idempotency-Key for POST /order (k8s)",
+    "description": "E2E сценарий идемпотентности POST /api/v1/order по заголовку Idempotency-Key:\n1. Подготовка: товар со стоком 20, пользователь, депозит 100 руб., ёмкость курьеров = reservedMax + 2 (шаг-зонд 07a учитывает уже существующие резервы доставки на эту дату).\n2. POST /order с Idempotency-Key (цена 10) -> 201 PLACED.\n3. Повтор того же запроса с тем же Idempotency-Key -> 201, тот же orderId (replay сохранённого ответа), второй заказ НЕ создаётся: у пользователя ровно 1 заказ, баланс 90 (списание одно).\n4. Повтор того же Idempotency-Key с другим payload (цена 20) -> 409 IDEMPOTENCY_KEY_CONFLICT.\n5. POST /order с НОВЫМ Idempotency-Key -> 201, новый orderId, у пользователя 2 заказа, баланс 80.\n\nЗапуск: из fp/ выполнить scripts/06-run-postman-k8s.ps1 (newman) — ключ X-Internal-API-Key читается из fp/.env (или задаётся параметром -InternalApiKey) и передаётся newman через --env-var internalApiKey. Вручную: newman run postman/k8s/otus-hw9-idempotency-k8s.postman_collection.json -e postman/k8s/k8s.postman_environment.json --env-var internalApiKey=<ключ из fp/.env>.\n\nПредпосылки: запущен minikube и установлен релиз fpchart (scripts/03-helm-fp-install.ps1); домен arch.homework резолвится на IP ingress-контроллера (minikube tunnel и/или запись в файле hosts). Локальный туннель на 127.0.0.1 не требуется.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "01 - Health USERService",
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "exec": [
+              "// Шаг 00: уникальные данные прогона, чтобы коллекции можно было запускать повторно",
+              "var runBase = Date.now();",
+              "var rand = Math.floor(Math.random() * 100000);",
+              "pm.collectionVariables.set(\"runBase\", String(runBase));",
+              "pm.collectionVariables.set(\"rand\", String(rand));",
+              "",
+              "// Уникальная дата доставки: завтра + (runBase % 28) дней.",
+              "// Собираем из локальных getFullYear/getMonth/getDate — toISOString() сдвигает дату из-за UTC.",
+              "var delivery = new Date();",
+              "delivery.setDate(delivery.getDate() + 1 + (runBase % 28));",
+              "function pad(n) { return n < 10 ? \"0\" + n : \"\" + n; }",
+              "var deliveryDate = delivery.getFullYear() + \"-\" + pad(delivery.getMonth() + 1) + \"-\" + pad(delivery.getDate());",
+              "pm.collectionVariables.set(\"deliveryDate\", deliveryDate);",
+              "",
+              "pm.collectionVariables.set(\"slotStart\", \"12:00\");",
+              "pm.collectionVariables.set(\"slotEnd\", \"14:00\");",
+              "",
+              "pm.collectionVariables.set(\"sku\", \"SKU-\" + runBase + \"-\" + rand);",
+              "pm.collectionVariables.set(\"manufacturerArticle\", \"ART-\" + runBase + \"-\" + rand);",
+              "pm.collectionVariables.set(\"userName\", \"user\" + runBase + \"_\" + rand);",
+              "pm.collectionVariables.set(\"userEmail\", \"user\" + runBase + \"_\" + rand + \"@test.com\");",
+              "",
+              "// Ключи идемпотентности (UUID) для двух независимых заказов",
+              "pm.collectionVariables.set(\"idempotencyKey\", pm.variables.replaceIn(\"{{$guid}}\"));",
+              "pm.collectionVariables.set(\"secondIdempotencyKey\", pm.variables.replaceIn(\"{{$guid}}\"));",
+              "console.log(\"HW9 idempotency run: base=\" + runBase + \", deliveryDate=\" + deliveryDate + \", key=\" + pm.collectionVariables.get(\"idempotencyKey\"));"
+            ],
+            "type": "text/javascript"
+          }
+        },
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Status code is 200\", function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.test(\"Body has status UP\", function () {",
+              "    var jsonData = pm.response.json();",
+              "    pm.expect(jsonData.status).to.eql(\"UP\");",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/health/user",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "health",
+            "user"
+          ]
+        },
+        "description": "Проверка, что USERService запущен в кластере Kubernetes (health-ingress, маршрут /health/user)."
+      },
+      "response": []
+    },
+    {
+      "name": "02 - Health BILLINGService",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Status code is 200\", function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.test(\"Body has status UP\", function () {",
+              "    var jsonData = pm.response.json();",
+              "    pm.expect(jsonData.status).to.eql(\"UP\");",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/health/billing",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "health",
+            "billing"
+          ]
+        },
+        "description": "Проверка, что BILLINGService запущен в кластере Kubernetes (health-ingress, маршрут /health/billing)."
+      },
+      "response": []
+    },
+    {
+      "name": "03 - Health ORDERService",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Status code is 200\", function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.test(\"Body has status UP\", function () {",
+              "    var jsonData = pm.response.json();",
+              "    pm.expect(jsonData.status).to.eql(\"UP\");",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/health/order",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "health",
+            "order"
+          ]
+        },
+        "description": "Проверка, что ORDERService запущен в кластере Kubernetes (health-ingress, маршрут /health/order)."
+      },
+      "response": []
+    },
+    {
+      "name": "04 - Health NOTIFICATIONService",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Status code is 200\", function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.test(\"Body has status UP\", function () {",
+              "    var jsonData = pm.response.json();",
+              "    pm.expect(jsonData.status).to.eql(\"UP\");",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/health/notification",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "health",
+            "notification"
+          ]
+        },
+        "description": "Проверка, что NOTIFICATIONService запущен в кластере Kubernetes (health-ingress, маршрут /health/notification)."
+      },
+      "response": []
+    },
+    {
+      "name": "05 - Health WAREHOUSEService",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Status code is 200\", function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.test(\"Body has status UP\", function () {",
+              "    var jsonData = pm.response.json();",
+              "    pm.expect(jsonData.status).to.eql(\"UP\");",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/health/warehouse",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "health",
+            "warehouse"
+          ]
+        },
+        "description": "Проверка, что WAREHOUSEService запущен в кластере Kubernetes (health-ingress, маршрут /health/warehouse)."
+      },
+      "response": []
+    },
+    {
+      "name": "06 - Health DELIVERYService",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Status code is 200\", function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.test(\"Body has status UP\", function () {",
+              "    var jsonData = pm.response.json();",
+              "    pm.expect(jsonData.status).to.eql(\"UP\");",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/health/delivery",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "health",
+            "delivery"
+          ]
+        },
+        "description": "Проверка, что DELIVERYService запущен в кластере Kubernetes (health-ingress, маршрут /health/delivery)."
+      },
+      "response": []
+    },
+    {
+      "name": "07a - Probe existing courier reservations",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "// Антиколлизия: на этой дате могли остаться резервы доставки от прошлых прогонов.",
+              "// Читаем фактическую занятость слотов и пересчитываем courierCount.",
+              "pm.test(\"Probe response is 200 or 404\", function () {",
+              "    pm.expect(pm.response.code).to.be.oneOf([200, 404]);",
+              "});",
+              "",
+              "var N = 2; // сценарию нужны два свободных места курьера в целевом слоте (два заказа)",
+              "",
+              "if (pm.response.code === 404) {",
+              "    // Ёмкость на дату ещё не задана: резервов нет, слот остаётся как настроен в шаге 01.",
+              "    pm.collectionVariables.set(\"reservedMax\", \"0\");",
+              "    pm.collectionVariables.set(\"courierCount\", String(N));",
+              "    console.log(\"Capacity probe: 404, reservedMax=0, courierCount=\" + N",
+              "        + \", slot=\" + pm.collectionVariables.get(\"slotStart\") + \"-\" + pm.collectionVariables.get(\"slotEnd\"));",
+              "} else {",
+              "    var jsonData = pm.response.json();",
+              "    var slots = jsonData.slots || [];",
+              "    pm.test(\"Capacity response has slots\", function () {",
+              "        pm.expect(slots).to.be.an(\"array\").that.is.not.empty;",
+              "    });",
+              "    var busiest = slots.reduce(function (a, b) {",
+              "        return (b.reservedCount || 0) > (a.reservedCount || 0) ? b : a;",
+              "    });",
+              "    var reservedMax = busiest.reservedCount || 0;",
+              "    pm.collectionVariables.set(\"slotStart\", busiest.slotStart);",
+              "    pm.collectionVariables.set(\"slotEnd\", busiest.slotEnd);",
+              "    pm.collectionVariables.set(\"reservedMax\", String(reservedMax));",
+              "    pm.collectionVariables.set(\"courierCount\", String(reservedMax + N));",
+              "    console.log(\"Capacity probe: 200, busiest slot \" + busiest.slotStart + \"-\" + busiest.slotEnd",
+              "        + \", reservedMax=\" + reservedMax + \", courierCount=\" + (reservedMax + N));",
+              "}"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/delivery/courier-capacity/{{deliveryDate}}",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "delivery",
+            "courier-capacity",
+            "{{deliveryDate}}"
+          ]
+        },
+        "description": "Зонд: какие резервы доставки уже есть на deliveryDate. 404 — ёмкость на дату ещё не задавалась (резервов нет, слот как в шаге 01). 200 — берём самый занятый слот и пересчитываем courierCount = reservedMax + 2."
+      },
+      "response": []
+    },
+    {
+      "name": "07 - Set courier capacity for deliveryDate (courierCount из зонда)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Status code is 200\", function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "console.log(\"Courier capacity=\" + pm.collectionVariables.get(\"courierCount\") + \" set for \" + pm.collectionVariables.get(\"deliveryDate\") + \" (probe: reservedMax=\" + pm.collectionVariables.get(\"reservedMax\") + \")\");"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "PUT",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n    \"courierCount\": {{courierCount}}\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/delivery/courier-capacity/{{deliveryDate}}",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "delivery",
+            "courier-capacity",
+            "{{deliveryDate}}"
+          ]
+        },
+        "description": "Установка ёмкости курьеров на дату доставки: courierCount = reservedMax + 2 из шага-зонда 07a (антиколлизия с резервами прошлых прогонов, два заказа сценария должны поместиться в один слот); при отсутствии слотов создаются дефолтные 10-12, 12-14, 14-16, 16-18."
+      },
+      "response": []
+    },
+    {
+      "name": "08 - Create product (availableQuantity=20)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Status code is 201\", function () {",
+              "    pm.response.to.have.status(201);",
+              "});",
+              "",
+              "pm.test(\"Response body has id field\", function () {",
+              "    var jsonData = pm.response.json();",
+              "    pm.expect(jsonData).to.have.property(\"id\");",
+              "    pm.expect(jsonData.id).to.be.a(\"number\");",
+              "});",
+              "",
+              "var jsonData = pm.response.json();",
+              "pm.collectionVariables.set(\"productId\", jsonData.id);",
+              "console.log(\"Product created with ID: \" + jsonData.id);"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n    \"manufacturerArticle\": \"{{manufacturerArticle}}\",\n    \"sku\": \"{{sku}}\",\n    \"name\": \"HW9 idempotency test product\",\n    \"description\": \"HW9 idempotency scenario product\",\n    \"price\": 10.00,\n    \"productStock\": {\n        \"availableQuantity\": 20,\n        \"reservedQuantity\": 0\n    }\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/products",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "products"
+          ]
+        },
+        "description": "Создание товара в WAREHOUSEService."
+      },
+      "response": []
+    },
+    {
+      "name": "09 - Register user (userId, billing account auto-created)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Status code is 201\", function () {",
+              "    pm.response.to.have.status(201);",
+              "});",
+              "",
+              "pm.test(\"Response body has id field\", function () {",
+              "    var jsonData = pm.response.json();",
+              "    pm.expect(jsonData).to.have.property(\"id\");",
+              "    pm.expect(jsonData.id).to.be.a(\"number\");",
+              "});",
+              "",
+              "var jsonData = pm.response.json();",
+              "pm.collectionVariables.set(\"userId\", jsonData.id);",
+              "console.log(\"User registered with ID: \" + jsonData.id + \" (billing account auto-created)\");",
+              "",
+              "pm.test(\"User data matches sent data\", function () {",
+              "    var jsonData = pm.response.json();",
+              "    pm.expect(jsonData.userName).to.eql(pm.collectionVariables.get(\"userName\"));",
+              "    pm.expect(jsonData.email).to.eql(pm.collectionVariables.get(\"userEmail\"));",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n    \"userName\": \"{{userName}}\",\n    \"firstName\": \"Idem\",\n    \"lastName\": \"Potent\",\n    \"email\": \"{{userEmail}}\",\n    \"password\": \"Password1!\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/auth/register",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "auth",
+            "register"
+          ]
+        },
+        "description": "Регистрация нового пользователя. USERService автоматически создаёт биллинг-аккаунт с балансом 0."
+      },
+      "response": []
+    },
+    {
+      "name": "10 - Deposit 100 RUB (userId)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "// Billing account is created asynchronously after registration: until it exists the deposit",
+              "// returns 404 (BILLING_ACCOUNT_NOT_FOUND). Poll with the same request: a retry after 404 is",
+              "// safe because 404 means the operation was not executed.",
+              "var maxAttempts = 15;",
+              "var attempt = parseInt(pm.collectionVariables.get(\"depositPollAttempt\") || \"1\", 10);",
+              "",
+              "if (pm.response.code === 200) {",
+              "    pm.test(\"Status code is 200\", function () {",
+              "        pm.response.to.have.status(200);",
+              "    });",
+              "    pm.test(\"Balance is 100 after deposit\", function () {",
+              "        var jsonData = pm.response.json();",
+              "        pm.expect(Number(jsonData.newBalance)).to.eql(100);",
+              "    });",
+              "    pm.collectionVariables.set(\"depositPollAttempt\", \"1\");",
+              "} else if (pm.response.code === 404 && attempt < maxAttempts) {",
+              "    console.log(\"Attempt \" + attempt + \"/\" + maxAttempts + \": billing account not ready, retrying deposit...\");",
+              "    pm.collectionVariables.set(\"depositPollAttempt\", String(attempt + 1));",
+              "    postman.setNextRequest(pm.info.requestName);",
+              "} else {",
+              "    pm.collectionVariables.set(\"depositPollAttempt\", \"1\");",
+              "    pm.test(\"Deposit succeeded (billing account ready)\", function () {",
+              "        pm.expect(pm.response.code, \"Deposit failed: billing account not ready within \" + maxAttempts + \" attempts\").to.eql(200);",
+              "    });",
+              "}"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n    \"amount\": 100\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/account/{{userId}}/deposit",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "account",
+            "{{userId}}",
+            "deposit"
+          ]
+        },
+        "description": "Пополнение баланса пользователя на 100 руб."
+      },
+      "response": []
+    },
+    {
+      "name": "11 - Create order with Idempotency-Key -> 201 PLACED",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Status code is 201\", function () {",
+              "    pm.response.to.have.status(201);",
+              "});",
+              "",
+              "pm.test(\"Order is PLACED\", function () {",
+              "    var jsonData = pm.response.json();",
+              "    pm.expect(jsonData.orderStatus).to.eql(\"PLACED\");",
+              "    pm.expect(Number(jsonData.userId)).to.eql(Number(pm.collectionVariables.get(\"userId\")));",
+              "    pm.expect(Number(jsonData.productId)).to.eql(Number(pm.collectionVariables.get(\"productId\")));",
+              "});",
+              "",
+              "var jsonData = pm.response.json();",
+              "pm.collectionVariables.set(\"orderId\", jsonData.id);",
+              "console.log(\"First order created with ID: \" + jsonData.id);"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Idempotency-Key",
+            "value": "{{idempotencyKey}}"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n    \"userId\": {{userId}},\n    \"price\": 10.0000,\n    \"description\": \"HW9 idempotency scenario order\",\n    \"productId\": {{productId}},\n    \"quantity\": 1,\n    \"deliveryDate\": \"{{deliveryDate}}\",\n    \"slotStart\": \"{{slotStart}}\",\n    \"slotEnd\": \"{{slotEnd}}\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/order",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "order"
+          ]
+        },
+        "description": "Первое создание заказа с заголовком Idempotency-Key."
+      },
+      "response": []
+    },
+    {
+      "name": "12 - Repeat SAME Idempotency-Key and payload -> 201 SAME order (replay)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Replay returns 201 with the stored response\", function () {",
+              "    pm.response.to.have.status(201);",
+              "});",
+              "",
+              "pm.test(\"Same order id returned (no second order created)\", function () {",
+              "    var jsonData = pm.response.json();",
+              "    pm.expect(Number(jsonData.id)).to.eql(Number(pm.collectionVariables.get(\"orderId\")));",
+              "    pm.expect(jsonData.orderStatus).to.eql(\"PLACED\");",
+              "});",
+              "",
+              "console.log(\"Idempotent replay: orderId=\" + pm.response.json().id);"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Idempotency-Key",
+            "value": "{{idempotencyKey}}"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n    \"userId\": {{userId}},\n    \"price\": 10.0000,\n    \"description\": \"HW9 idempotency scenario order\",\n    \"productId\": {{productId}},\n    \"quantity\": 1,\n    \"deliveryDate\": \"{{deliveryDate}}\",\n    \"slotStart\": \"{{slotStart}}\",\n    \"slotEnd\": \"{{slotEnd}}\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/order",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "order"
+          ]
+        },
+        "description": "Повтор запроса с тем же Idempotency-Key и тем же payload: возвращается сохранённый ответ (201), второй заказ не создаётся, повторного списания нет."
+      },
+      "response": []
+    },
+    {
+      "name": "13 - User orders: exactly ONE order after replay",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Status code is 200\", function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.test(\"Exactly one order exists for the user\", function () {",
+              "    var orders = pm.response.json();",
+              "    pm.expect(orders).to.be.an(\"array\").with.lengthOf(1);",
+              "    pm.expect(Number(orders[0].id)).to.eql(Number(pm.collectionVariables.get(\"orderId\")));",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/order/user/{{userId}}",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "order",
+            "user",
+            "{{userId}}"
+          ]
+        },
+        "description": "Проверка: после replay у пользователя ровно один заказ."
+      },
+      "response": []
+    },
+    {
+      "name": "14 - Billing account: single withdrawal (balance 90)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Status code is 200\", function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.test(\"Balance is 90: replay did not withdraw twice\", function () {",
+              "    var jsonData = pm.response.json();",
+              "    pm.expect(Number(jsonData.userId)).to.eql(Number(pm.collectionVariables.get(\"userId\")));",
+              "    pm.expect(Number(jsonData.balance)).to.eql(90);",
+              "    pm.expect(jsonData.enabled).to.be.true;",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/account/user/{{userId}}",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "account",
+            "user",
+            "{{userId}}"
+          ]
+        },
+        "description": "Баланс 90: повтор запроса не сделал второе списание."
+      },
+      "response": []
+    },
+    {
+      "name": "15 - SAME Idempotency-Key with DIFFERENT payload -> 409 IDEMPOTENCY_KEY_CONFLICT",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Status code is 409\", function () {",
+              "    pm.response.to.have.status(409);",
+              "});",
+              "",
+              "pm.test(\"Machine-readable code IDEMPOTENCY_KEY_CONFLICT\", function () {",
+              "    var jsonData = pm.response.json();",
+              "    pm.expect(jsonData.code).to.eql(\"IDEMPOTENCY_KEY_CONFLICT\");",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Idempotency-Key",
+            "value": "{{idempotencyKey}}"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n    \"userId\": {{userId}},\n    \"price\": 20.0000,\n    \"description\": \"HW9 idempotency scenario order - another price\",\n    \"productId\": {{productId}},\n    \"quantity\": 1,\n    \"deliveryDate\": \"{{deliveryDate}}\",\n    \"slotStart\": \"{{slotStart}}\",\n    \"slotEnd\": \"{{slotEnd}}\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/order",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "order"
+          ]
+        },
+        "description": "Тот же Idempotency-Key, но другой payload (цена 20): конфликт 409 IDEMPOTENCY_KEY_CONFLICT."
+      },
+      "response": []
+    },
+    {
+      "name": "16 - NEW Idempotency-Key -> 201 NEW order",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Status code is 201\", function () {",
+              "    pm.response.to.have.status(201);",
+              "});",
+              "",
+              "pm.test(\"New order id differs from the first one\", function () {",
+              "    var jsonData = pm.response.json();",
+              "    pm.expect(jsonData.orderStatus).to.eql(\"PLACED\");",
+              "    pm.expect(Number(jsonData.id)).to.not.eql(Number(pm.collectionVariables.get(\"orderId\")));",
+              "});",
+              "",
+              "var jsonData = pm.response.json();",
+              "pm.collectionVariables.set(\"secondOrderId\", jsonData.id);",
+              "console.log(\"Second order created with ID: \" + jsonData.id);"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Idempotency-Key",
+            "value": "{{secondIdempotencyKey}}"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n    \"userId\": {{userId}},\n    \"price\": 10.0000,\n    \"description\": \"HW9 idempotency scenario second order\",\n    \"productId\": {{productId}},\n    \"quantity\": 1,\n    \"deliveryDate\": \"{{deliveryDate}}\",\n    \"slotStart\": \"{{slotStart}}\",\n    \"slotEnd\": \"{{slotEnd}}\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/order",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "order"
+          ]
+        },
+        "description": "Новый ключ — новый заказ: идемпотентность ограничена ключом, а не пользователем."
+      },
+      "response": []
+    },
+    {
+      "name": "17 - User orders: exactly TWO orders",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Status code is 200\", function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.test(\"Exactly two orders exist for the user\", function () {",
+              "    var orders = pm.response.json();",
+              "    pm.expect(orders).to.be.an(\"array\").with.lengthOf(2);",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/order/user/{{userId}}",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "order",
+            "user",
+            "{{userId}}"
+          ]
+        },
+        "description": "Итог: 2 заказа (первый + новый ключ), replay второго заказа не создал."
+      },
+      "response": []
+    },
+    {
+      "name": "18 - Billing account: two withdrawals (balance 80)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Status code is 200\", function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.test(\"Balance is 80: two withdrawals, no duplicates\", function () {",
+              "    var jsonData = pm.response.json();",
+              "    pm.expect(Number(jsonData.userId)).to.eql(Number(pm.collectionVariables.get(\"userId\")));",
+              "    pm.expect(Number(jsonData.balance)).to.eql(80);",
+              "    pm.expect(jsonData.enabled).to.be.true;",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/account/user/{{userId}}",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "account",
+            "user",
+            "{{userId}}"
+          ]
+        },
+        "description": "Баланс 80: два списания по двум заказам, replay duplication нет."
+      },
+      "response": []
+    }
+  ],
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://arch.homework",
+      "type": "string"
+    },
+    {
+      "key": "internalApiKey",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "runBase",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "rand",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "deliveryDate",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "slotStart",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "slotEnd",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "reservedMax",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "courierCount",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "sku",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "manufacturerArticle",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "productId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "userName",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "userEmail",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "userId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "idempotencyKey",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "secondIdempotencyKey",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "orderId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "secondOrderId",
+      "value": "",
+      "type": "string"
+    }
+  ]
+}

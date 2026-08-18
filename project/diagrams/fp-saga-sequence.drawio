@@ -1,0 +1,203 @@
+<mxfile host="app.diagrams.net" agent="hw08-docs" version="24.7.7">
+  <diagram id="hw08-saga-sequence" name="Saga CreateOrder Sequence">
+    <mxGraphModel dx="1426" dy="800" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1500" pageHeight="1400" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="p1" value="Client&#10;(Postman/Newman)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="40" y="40" width="170" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="p2" value="ORDERService&#10;(сага-оркестратор)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#08427B;strokeColor=#06315C;fontColor=#ffffff;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="250" y="40" width="170" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="p3" value="BILLINGService" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="460" y="40" width="170" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="p4" value="WAREHOUSEService" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="670" y="40" width="170" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="p5" value="DELIVERYService" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="880" y="40" width="170" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="p6" value="RabbitMQ" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="1080" y="40" width="150" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="p7" value="NOTIFICATIONService" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontStyle=1;" vertex="1" parent="1">
+          <mxGeometry x="1250" y="40" width="170" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="l1" style="endArrow=none;dashed=1;html=1;strokeColor=#666666;" edge="1" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="125" y="90" as="sourcePoint" />
+            <mxPoint x="125" y="1240" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="l2" style="endArrow=none;dashed=1;html=1;strokeColor=#666666;" edge="1" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="335" y="90" as="sourcePoint" />
+            <mxPoint x="335" y="1240" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="l3" style="endArrow=none;dashed=1;html=1;strokeColor=#666666;" edge="1" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="545" y="90" as="sourcePoint" />
+            <mxPoint x="545" y="1240" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="l4" style="endArrow=none;dashed=1;html=1;strokeColor=#666666;" edge="1" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="755" y="90" as="sourcePoint" />
+            <mxPoint x="755" y="1240" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="l5" style="endArrow=none;dashed=1;html=1;strokeColor=#666666;" edge="1" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="965" y="90" as="sourcePoint" />
+            <mxPoint x="965" y="1240" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="l6" style="endArrow=none;dashed=1;html=1;strokeColor=#666666;" edge="1" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="1155" y="90" as="sourcePoint" />
+            <mxPoint x="1155" y="1240" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="l7" style="endArrow=none;dashed=1;html=1;strokeColor=#666666;" edge="1" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="1335" y="90" as="sourcePoint" />
+            <mxPoint x="1335" y="1240" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="m1" value="1: POST /api/v1/order" style="html=1;endArrow=block;endFill=1;strokeColor=#000000;fontSize=12;" edge="1" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="125" y="140" as="sourcePoint" />
+            <mxPoint x="335" y="140" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="m2" value="2: заказ PENDING → PROCESSING, сага STARTED (order_saga_state)" style="html=1;endArrow=block;endFill=1;strokeColor=#000000;fontSize=12;" edge="1" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="335" y="175" as="sourcePoint" />
+            <mxPoint x="335" y="210" as="targetPoint" />
+            <Array as="points">
+              <mxPoint x="455" y="175" />
+              <mxPoint x="455" y="210" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="m3" value="3: POST /internal/order/withdraw (X-Internal-API-Key) → 200; сага: BILLING_RESERVED" style="html=1;endArrow=block;endFill=1;strokeColor=#438DD5;fontColor=#08427B;fontSize=12;strokeWidth=2;" edge="1" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="335" y="260" as="sourcePoint" />
+            <mxPoint x="545" y="260" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="m4" value="4: POST /internal/products/reservations → 200 RESERVED; сага: WAREHOUSE_RESERVED" style="html=1;endArrow=block;endFill=1;strokeColor=#438DD5;fontColor=#08427B;fontSize=12;strokeWidth=2;" edge="1" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="335" y="320" as="sourcePoint" />
+            <mxPoint x="755" y="320" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="m5" value="5: POST /internal/delivery/reservations → 201 RESERVED; сага: DELIVERY_RESERVED" style="html=1;endArrow=block;endFill=1;strokeColor=#438DD5;fontColor=#08427B;fontSize=12;strokeWidth=2;" edge="1" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="335" y="380" as="sourcePoint" />
+            <mxPoint x="965" y="380" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="m6" value="6: POST /internal/products/reservations/{orderId}/confirm → 200 CONFIRMED" style="html=1;endArrow=block;endFill=1;strokeColor=#438DD5;fontColor=#08427B;fontSize=12;strokeWidth=2;" edge="1" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="335" y="440" as="sourcePoint" />
+            <mxPoint x="755" y="440" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="m7" value="7: POST /internal/delivery/reservations/{orderId}/confirm → 200 CONFIRMED" style="html=1;endArrow=block;endFill=1;strokeColor=#438DD5;fontColor=#08427B;fontSize=12;strokeWidth=2;" edge="1" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="335" y="500" as="sourcePoint" />
+            <mxPoint x="965" y="500" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="m8" value="8: сага CONFIRMED, заказ PLACED" style="html=1;endArrow=block;endFill=1;strokeColor=#000000;fontSize=12;" edge="1" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="335" y="535" as="sourcePoint" />
+            <mxPoint x="335" y="570" as="targetPoint" />
+            <Array as="points">
+              <mxPoint x="455" y="535" />
+              <mxPoint x="455" y="570" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="m9" value="9: NotificationEvent (exchange hw08.direct) — async" style="html=1;endArrow=block;endFill=1;dashed=1;strokeColor=#82b366;fontSize=12;" edge="1" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="335" y="620" as="sourcePoint" />
+            <mxPoint x="1155" y="620" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="m10" value="10: consume → сохранение уведомления SUCCESS" style="html=1;endArrow=block;endFill=1;dashed=1;strokeColor=#82b366;fontSize=12;" edge="1" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="1155" y="680" as="sourcePoint" />
+            <mxPoint x="1335" y="680" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="m11" value="11: 201 PLACED" style="html=1;endArrow=block;endFill=1;dashed=1;strokeColor=#000000;fontSize=12;" edge="1" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="335" y="740" as="sourcePoint" />
+            <mxPoint x="125" y="740" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="altframe" value="alt — отказ шага саги (например, DELIVERY: 409 DELIVERY_NO_FREE_COURIER)" style="shape=umlFrame;whiteSpace=wrap;html=1;width=620;height=40;fillColor=none;strokeColor=#B85450;fontColor=#B85450;fontStyle=1;verticalAlign=top;align=left;" vertex="1" parent="1">
+          <mxGeometry x="20" y="780" width="1430" height="440" as="geometry" />
+        </mxCell>
+        <mxCell id="m12" value="12: сага COMPENSATING (failure_step, failure_reason)" style="html=1;endArrow=block;endFill=1;strokeColor=#B85450;fontSize=12;" edge="1" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="335" y="845" as="sourcePoint" />
+            <mxPoint x="335" y="880" as="targetPoint" />
+            <Array as="points">
+              <mxPoint x="455" y="845" />
+              <mxPoint x="455" y="880" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="m13" value="13: POST /internal/products/reservations/{orderId}/cancel → RELEASED (сток возвращён)" style="html=1;endArrow=block;endFill=1;strokeColor=#B85450;fontSize=12;" edge="1" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="335" y="920" as="sourcePoint" />
+            <mxPoint x="755" y="920" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="m14" value="14: POST /internal/order/refund → 200" style="html=1;endArrow=block;endFill=1;strokeColor=#B85450;fontSize=12;" edge="1" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="335" y="980" as="sourcePoint" />
+            <mxPoint x="545" y="980" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="m15" value="15: сага COMPENSATED, заказ FAILED" style="html=1;endArrow=block;endFill=1;strokeColor=#B85450;fontSize=12;" edge="1" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="335" y="1015" as="sourcePoint" />
+            <mxPoint x="335" y="1050" as="targetPoint" />
+            <Array as="points">
+              <mxPoint x="455" y="1015" />
+              <mxPoint x="455" y="1050" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="m16a" value="16: NotificationEvent FAILED — async" style="html=1;endArrow=block;endFill=1;dashed=1;strokeColor=#82b366;fontSize=12;" edge="1" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="335" y="1090" as="sourcePoint" />
+            <mxPoint x="1155" y="1090" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="m16b" value="16: consume → сохранение уведомления FAILED" style="html=1;endArrow=block;endFill=1;dashed=1;strokeColor=#82b366;fontSize=12;" edge="1" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="1155" y="1140" as="sourcePoint" />
+            <mxPoint x="1335" y="1140" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="m17" value="17: 409 ErrorDto{code} (напр. DELIVERY_NO_FREE_COURIER)" style="html=1;endArrow=block;endFill=1;dashed=1;strokeColor=#B85450;fontSize=12;" edge="1" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="335" y="1180" as="sourcePoint" />
+            <mxPoint x="125" y="1180" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="note1" value="Все синхронные вызовы — REST /internal/** с заголовком X-Internal-API-Key.&#10;Компенсации выполняются только для фактически выполненных шагов и строго в обратном порядке&#10;(delivery.cancel → warehouse.cancel → billing.refund). Состояние саги — таблица order_saga_state." style="shape=note;whiteSpace=wrap;html=1;size=15;fillColor=#FFF2CC;strokeColor=#d6b656;align=left;verticalAlign=middle;fontSize=12;" vertex="1" parent="1">
+          <mxGeometry x="40" y="1270" width="1000" height="80" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

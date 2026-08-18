@@ -1,0 +1,97 @@
+package ru.otus.hw.controller;
+
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.Valid;
+import lombok.RequiredArgsConstructor;
+import org.jspecify.annotations.Nullable;
+import org.springframework.http.ResponseEntity;
+import org.springframework.util.StringUtils;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
+import ru.otus.hw.dto.OrderCreateDto;
+import ru.otus.hw.dto.OrderCreateResult;
+import ru.otus.hw.dto.OrderResponseDto;
+import ru.otus.hw.exception.IdempotencyKeyFormatException;
+import ru.otus.hw.service.OrderService;
+
+import java.net.URI;
+import java.util.List;
+import java.util.UUID;
+
+@RestController
+@RequiredArgsConstructor
+@RequestMapping("api/v1/order")
+@Tag(name = "Order API", description = "REST API for order management")
+public class OrderResource {
+
+    private final OrderService orderService;
+
+    @PostMapping
+    @Operation(summary = "Create a new order",
+            description = "Creates a new order and runs the orchestration saga: withdraw funds via BILLINGService, "
+                    + "reserve the product via WAREHOUSEService, reserve a delivery slot via DELIVERYService, "
+                    + "then confirm the reservations. If any step fails, all completed steps are compensated "
+                    + "in reverse order and the order is marked FAILED. "
+                    + "Supports an optional Idempotency-Key header (UUID): repeating a request with the same key "
+                    + "and payload never creates a second order. A key reused with a different payload returns "
+                    + "409 IDEMPOTENCY_KEY_CONFLICT; a malformed key returns 400 MALFORMED_REQUEST.")
+    public ResponseEntity<OrderResponseDto> createOrder(
+            @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKeyHeader,
+            @Valid @RequestBody OrderCreateDto orderCreateDto) {
+        UUID idempotencyKey = parseIdempotencyKey(idempotencyKeyHeader);
+
+        OrderCreateResult result = orderService.createOrder(orderCreateDto, idempotencyKey);
+        OrderResponseDto response = result.order();
+        URI location = ServletUriComponentsBuilder
+                .fromCurrentRequest()
+                .path("/{id}")
+                .buildAndExpand(response.id())
+                .toUri();
+
+        if (result.kind() == OrderCreateResult.Kind.REPLAYED_CURRENT) {
+            return ResponseEntity.ok(response);
+        }
+        return ResponseEntity.created(location).body(response);
+    }
+
+    private @Nullable UUID parseIdempotencyKey(String headerValue) {
+        if (!StringUtils.hasText(headerValue)) {
+            return null;
+        }
+        try {
+            return UUID.fromString(headerValue.trim());
+        } catch (IllegalArgumentException e) {
+            throw new IdempotencyKeyFormatException(headerValue);
+        }
+    }
+
+    @GetMapping("/{id}")
+    @Operation(summary = "Get order by ID",
+            description = "Retrieves an order by its ID")
+    public ResponseEntity<OrderResponseDto> getOrderById(@PathVariable Long id) {
+        return ResponseEntity.ok(orderService.getOrderById(id));
+    }
+
+    @GetMapping("/user/{userId}")
+    @Operation(summary = "Get orders by user ID",
+            description = "Retrieves all orders for a specific user")
+    public ResponseEntity<List<OrderResponseDto>> getOrdersByUserId(@PathVariable Long userId) {
+        return ResponseEntity.ok(orderService.getOrderByUserId(userId));
+    }
+
+    @PostMapping("/{id}/cancel")
+    @Operation(summary = "Cancel an order",
+            description = "Cancels a placed order: refunds funds via BILLINGService and releases the warehouse and "
+                    + "delivery reservations. Note: after a successful saga the reservations are CONFIRMED and final, "
+                    + "so cancelling such an order returns 409 ORDER_STATE_CONFLICT and the order stays PLACED.")
+    public ResponseEntity<OrderResponseDto> cancelOrder(@PathVariable Long id) {
+        return ResponseEntity.ok(orderService.cancelOrder(id));
+    }
+}

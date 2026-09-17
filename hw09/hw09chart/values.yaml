@@ -1,0 +1,180 @@
+fullnameOverride: hw09
+replicaCount: 1
+
+image:
+  repository: akinxela/otusapp
+  pullPolicy: IfNotPresent
+
+services:
+  user-service:
+    imageTag: hw09-user
+    port: 8000
+    dbPasswordKey: SPRING_DATASOURCE_PASSWORD_USER_SERVICE
+    waitFor:
+      - hw09-postgres-user:5432
+    env:
+      SERVER_PORT_USER_SERVICE: "8000"
+      SPRING_FLYWAY_ENABLED: "true"
+      SPRING_DATASOURCE_URL_USER_SERVICE: jdbc:postgresql://hw09-postgres-user:5432/hw09db_user_service
+      SPRING_DATASOURCE_USERNAME_USER_SERVICE: hw09user_user_service
+      BILLING_SERVICE_URL: http://hw09-billing-service:8001
+      JWT_EXPIRATION_TIME: "86400000"
+      BCRYPT_STRENGTH: "12"
+  billing-service:
+    imageTag: hw09-billing
+    port: 8001
+    dbPasswordKey: SPRING_DATASOURCE_PASSWORD_BILLING_SERVICE
+    waitFor:
+      - hw09-postgres-billing:5432
+    env:
+      SERVER_PORT_BILLING_SERVICE: "8001"
+      SPRING_FLYWAY_ENABLED: "true"
+      SPRING_DATASOURCE_URL_BILLING_SERVICE: jdbc:postgresql://hw09-postgres-billing:5432/hw09db_billing_service
+      SPRING_DATASOURCE_USERNAME_BILLING_SERVICE: hw09user_billing_service
+  order-service:
+    imageTag: hw09-order
+    port: 8002
+    dbPasswordKey: SPRING_DATASOURCE_PASSWORD_ORDER_SERVICE
+    waitFor:
+      - hw09-postgres-order:5432
+      - hw09-rabbitmq:5672
+    env:
+      SERVER_PORT_ORDER_SERVICE: "8002"
+      SPRING_FLYWAY_ENABLED: "true"
+      SPRING_DATASOURCE_URL_ORDER_SERVICE: jdbc:postgresql://hw09-postgres-order:5432/hw09db_order_service
+      SPRING_DATASOURCE_USERNAME_ORDER_SERVICE: hw09user_order_service
+      BILLING_SERVICE_URL: http://hw09-billing-service:8001
+      WAREHOUSE_SERVICE_URL: http://hw09-warehouse-service:8004
+      DELIVERY_SERVICE_URL: http://hw09-delivery-service:8005
+      RABBIT_ADDRESSES: hw09-rabbitmq
+  notification-service:
+    imageTag: hw09-notification
+    port: 8003
+    dbPasswordKey: SPRING_DATASOURCE_PASSWORD_NOTIFICATION_SERVICE
+    waitFor:
+      - hw09-postgres-notification:5432
+      - hw09-rabbitmq:5672
+    env:
+      SERVER_PORT_NOTIFICATION_SERVICE: "8003"
+      SPRING_FLYWAY_ENABLED: "true"
+      SPRING_DATASOURCE_URL_NOTIFICATION_SERVICE: jdbc:postgresql://hw09-postgres-notification:5432/hw09db_notification_service
+      SPRING_DATASOURCE_USERNAME_NOTIFICATION_SERVICE: hw09user_notification_service
+      RABBIT_ADDRESSES: hw09-rabbitmq
+  warehouse-service:
+    imageTag: hw09-warehouse
+    port: 8004
+    dbPasswordKey: SPRING_DATASOURCE_PASSWORD_WAREHOUSE_SERVICE
+    waitFor:
+      - hw09-postgres-warehouse:5432
+    env:
+      SERVER_PORT_WAREHOUSE_SERVICE: "8004"
+      SPRING_FLYWAY_ENABLED: "true"
+      SPRING_DATASOURCE_URL_WAREHOUSE_SERVICE: jdbc:postgresql://hw09-postgres-warehouse:5432/hw09db_warehouse_service
+      SPRING_DATASOURCE_USERNAME_WAREHOUSE_SERVICE: hw09user_warehouse_service
+  delivery-service:
+    imageTag: hw09-delivery
+    port: 8005
+    dbPasswordKey: SPRING_DATASOURCE_PASSWORD_DELIVERY_SERVICE
+    waitFor:
+      - hw09-postgres-delivery:5432
+    env:
+      SERVER_PORT_DELIVERY_SERVICE: "8005"
+      SPRING_FLYWAY_ENABLED: "true"
+      SPRING_DATASOURCE_URL_DELIVERY_SERVICE: jdbc:postgresql://hw09-postgres-delivery:5432/hw09db_delivery_service
+      SPRING_DATASOURCE_USERNAME_DELIVERY_SERVICE: hw09user_delivery_service
+
+postgres:
+  postgres-user:
+    database: hw09db_user_service
+    username: hw09user_user_service
+    password: ""
+    passwordSecretKey: SPRING_DATASOURCE_PASSWORD_USER_SERVICE
+    storage: 1Gi
+  postgres-billing:
+    database: hw09db_billing_service
+    username: hw09user_billing_service
+    password: ""
+    passwordSecretKey: SPRING_DATASOURCE_PASSWORD_BILLING_SERVICE
+    storage: 1Gi
+  postgres-order:
+    database: hw09db_order_service
+    username: hw09user_order_service
+    password: ""
+    passwordSecretKey: SPRING_DATASOURCE_PASSWORD_ORDER_SERVICE
+    storage: 1Gi
+  postgres-notification:
+    database: hw09db_notification_service
+    username: hw09user_notification_service
+    password: ""
+    passwordSecretKey: SPRING_DATASOURCE_PASSWORD_NOTIFICATION_SERVICE
+    storage: 1Gi
+  postgres-warehouse:
+    database: hw09db_warehouse_service
+    username: hw09user_warehouse_service
+    password: ""
+    passwordSecretKey: SPRING_DATASOURCE_PASSWORD_WAREHOUSE_SERVICE
+    storage: 1Gi
+  postgres-delivery:
+    database: hw09db_delivery_service
+    username: hw09user_delivery_service
+    password: ""
+    passwordSecretKey: SPRING_DATASOURCE_PASSWORD_DELIVERY_SERVICE
+    storage: 1Gi
+
+rabbitmq:
+  image:
+    repository: rabbitmq
+    tag: 4.1.3-management
+  username: guest
+  password: guest
+
+secrets:
+  internalApiKey: ""
+  jwtSecretKey: ""
+
+probes:
+  startupProbe:
+    httpGet:
+      path: /actuator/health
+      port: 8000
+    failureThreshold: 30
+    periodSeconds: 5
+  readinessProbe:
+    httpGet:
+      path: /actuator/health
+      port: 8000
+    initialDelaySeconds: 5
+    periodSeconds: 5
+    timeoutSeconds: 2
+    failureThreshold: 3
+  livenessProbe:
+    httpGet:
+      path: /actuator/health
+      port: 8000
+    initialDelaySeconds: 15
+    periodSeconds: 10
+    timeoutSeconds: 2
+    failureThreshold: 3
+
+ingress:
+  enabled: true
+  className: nginx
+  host: arch.homework
+
+ingress-nginx:
+  enabled: true
+  controller:
+    ingressClassResource:
+      enabled: true
+      name: nginx
+      default: true
+    metrics:
+      enabled: true
+      serviceMonitor:
+        enabled: false
+        additionalLabels:
+          release: monitoring
+    service:
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "10254"

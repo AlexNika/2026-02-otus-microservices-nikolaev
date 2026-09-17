@@ -1,0 +1,108 @@
+fullnameOverride: monitoring
+prometheus:
+  alertmanager:
+    enabled: true
+  server:
+    fullnameOverride: monitoring-prometheus
+    global:
+      scrape_interval: 15s
+    persistentVolume:
+      enabled: false
+    extraScrapeConfigs: |
+      - job_name: kubernetes-pods-fp
+        kubernetes_sd_configs:
+          - role: pod
+            namespaces:
+              names:
+                - otus-msa-fp
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
+            action: keep
+            regex: "true"
+          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_path]
+            action: replace
+            target_label: __metrics_path__
+            regex: (.+)
+          - source_labels: [__address__, __meta_kubernetes_pod_annotation_prometheus_io_port]
+            action: replace
+            regex: "([^:]+)(?::[0-9]+)?;([0-9]+)"
+            replacement: $1:$2
+            target_label: __address__
+
+grafana:
+  fullnameOverride: monitoring-grafana
+  adminUser: admin
+  adminPassword: ""
+  persistence:
+    enabled: false
+  ingress:
+    enabled: true
+    ingressClassName: nginx
+    annotations:
+      nginx.ingress.kubernetes.io/ssl-redirect: "false"
+    hosts:
+      - arch.finalproject
+    path: /grafana
+    pathType: Prefix
+  grafana.ini:
+    server:
+      root_url: http://arch.finalproject/grafana
+      serve_from_sub_path: true
+  datasources:
+    datasources.yaml:
+      apiVersion: 1
+      datasources:
+        - name: Prometheus
+          uid: fp-prometheus
+          type: prometheus
+          url: http://monitoring-prometheus.otus-msa-monitoring.svc.cluster.local
+          access: proxy
+          isDefault: true
+          editable: true
+        - name: Loki
+          uid: fp-loki
+          type: loki
+          url: http://logging-loki-gateway.otus-msa-logging.svc.cluster.local
+          access: proxy
+          editable: true
+          jsonData:
+            derivedFields:
+              - name: trace_id
+                matcherRegex: "\\\"trace_id\\\"\\s*:\\s*\\\"([0-9a-f]{32})\\\""
+                url: "$${__value.raw}"
+                datasourceUid: fp-tempo
+        - name: Tempo
+          uid: fp-tempo
+          type: tempo
+          url: http://tracing-tempo.otus-msa-tracing.svc.cluster.local:3200
+          access: proxy
+          editable: true
+          jsonData:
+            tracesToLogsV2:
+              datasourceUid: fp-loki
+              tags:
+                - key: service.name
+                  value: app
+                - key: namespace
+                  value: namespace
+              filterByTraceID: true
+              filterBySpanID: false
+              spanStartTimeShift: "-5m"
+              spanEndTimeShift: "5m"
+  dashboardProviders:
+    dashboardproviders.yaml:
+      apiVersion: 1
+      providers:
+        - name: 'default'
+          orgId: 1
+          folder: ''
+          type: file
+          disableDeletion: false
+          editable: true
+          options:
+            path: /var/lib/grafana/dashboards/default
+  extraConfigmapMounts:
+    - name: fp-dashboards
+      mountPath: /var/lib/grafana/dashboards/default
+      configMap: monitoring-grafana-dashboards
+      readOnly: true

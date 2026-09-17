@@ -1,0 +1,69 @@
+# Sessionless-аутентификация: жизненный цикл токена
+
+> Источник фактов: `OTUS - Microservices - FP Solution.md` §6.1 и `OTUS - Microservices - FP Solution.md` §6.1, §11.20–11.21. Статичная схема (не из newman-отчётов), редактируется вручную вместе с `.mmd`/`.png`/`.svg`.
+
+register/login → пара токенов → локальная валидация JWT в любом сервисе → refresh с ротацией → reuse detection → logout.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor C as Клиент
+    participant ING as ingress-nginx<br/>(arch.finalproject)
+    participant AUTH as AUTHService :8006<br/>(единственный Issuer)
+    participant DB as auth_db<br/>(auth_users, refresh_tokens,<br/>auth_outbox)
+    participant MQ as RabbitMQ<br/>(users.events)
+    participant SVC as Любой ресурс-сервис<br/>(ORDER/BILLING/USER/...)
+    participant SF as JwtAuthenticationFilter<br/>+ @authz (COMMONDomain)
+
+    rect rgb(235, 244, 255)
+    note over C,DB: Регистрация и логин (permitAll)
+    C->>ING: POST /api/v1/auth/register (UserCreateDto)
+    ING->>AUTH: маршрутизация /api/v1/auth
+    AUTH->>DB: INSERT auth_users (email, BCrypt-12 хэш, роли)
+    AUTH->>DB: INSERT auth_outbox (user.created, eventId от userId)
+    DB--)MQ: OutboxPublisher: user.created → USER, BILLING
+    AUTH-->>C: 201 Created
+    C->>AUTH: POST /api/v1/auth/login (email, password)
+    AUTH->>DB: проверка BCrypt-хэша
+    AUTH->>DB: сохранить SHA-256(refresh)
+    AUTH-->>C: access-JWT (15 мин, HMAC, claims sub/userId/roles)<br/>+ refresh-токен (opaque UUID, 30 дней)
+    end
+
+    rect rgb(235, 255, 238)
+    note over C,SF: Sessionless-запрос: JWT валидируется ЛОКАЛЬНО, без обращения к AUTH
+    C->>ING: GET /api/v1/order/{id}<br/>Authorization: Bearer access-JWT
+    ING->>SVC: маршрутизация /api/v1/order
+    SVC->>SF: цепочка №2 (/api/v1/** authenticated)
+    SF->>SF: проверка HMAC-подписи + exp<br/>(общий ключ, без сети и БД)
+    SF->>SVC: AuthPrincipal в SecurityContext<br/>(userId, roles из claims)
+    SVC->>SVC: RBAC + ownership<br/>@authz.ownerOrAdmin(userId)
+    SVC-->>C: 200 OK
+    note over SF: невалидный/просроченный токен → 401 ErrorDto<br/>недостаточно прав → 403 ErrorDto
+    end
+
+    rect rgb(255, 248, 230)
+    note over C,DB: Refresh с ротацией (access истёк через 15 мин)
+    C->>AUTH: POST /api/v1/auth/refresh (refresh-токен)
+    AUTH->>DB: поиск SHA-256(refresh), проверка действительности
+    AUTH->>DB: ротация: новый refresh, старый invalidated
+    AUTH-->>C: новый access-JWT + новый refresh
+    end
+
+    rect rgb(255, 235, 235)
+    note over C,DB: Reuse detection: предъявлен УЖЕ РОТИРОВАННЫЙ refresh (вероятная кража)
+    C->>AUTH: POST /api/v1/auth/refresh (старый токен)
+    AUTH->>DB: PURGE всех refresh-токенов пользователя
+    AUTH-->>C: 401 Unauthorized → повторный login по паролю
+    end
+
+    C->>AUTH: POST /api/v1/auth/logout (Bearer JWT)
+    AUTH->>DB: инвалидация refresh-токенов
+    AUTH-->>C: 204 No Content
+```
+
+## Легенда
+
+- `->>` / `-->>` — синхронный REST-вызов (запрос/ответ).
+- `--)` — асинхронная доставка через RabbitMQ.
+- `rect` блоки группируют этапы: регистрация+логин, sessionless-запрос, refresh-ротация, reuse detection.
+- Факты (15 мин / 30 дней, BCrypt-12, SHA-256, ротация, purge + 401) — раздел 6.1 FP Solution.md, §11.20–11.21 FP Solution2.md.

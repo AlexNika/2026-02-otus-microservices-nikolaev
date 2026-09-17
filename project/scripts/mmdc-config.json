@@ -1,0 +1,10 @@
+{
+  "theme": "default",
+  "sequence": {
+    "useMaxWidth": false,
+    "wrap": false
+  },
+  "flowchart": {
+    "useMaxWidth": false
+  }
+}

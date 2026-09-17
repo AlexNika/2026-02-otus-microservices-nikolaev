@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Values.grafana.fullnameOverride }}-dashboards
+  labels:
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/name: grafana
+    grafana_dashboard: "1"
+data:
+  {{- (.Files.Glob "dashboards/*.json").AsConfig | nindent 2 }}

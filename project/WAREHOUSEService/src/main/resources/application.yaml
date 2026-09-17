@@ -1,0 +1,93 @@
+spring:
+  profiles:
+    active: dev
+    # Бины/эндпоинты Chaos Monkey регистрируются только при активном профиле
+    # chaos-monkey (ChaosMonkeyCondition), поэтому профиль включается группой
+    # в обоих окружениях; runtime-флаг атак — см. chaos.monkey.enabled.
+    group:
+      dev:
+        - chaos-monkey
+      k8s:
+        - chaos-monkey
+  application:
+    name: WAREHOUSEService
+  flyway:
+    enabled: ${SPRING_FLYWAY_ENABLED:true}
+    locations: classpath:db/migration
+  datasource:
+    url: ${SPRING_DATASOURCE_URL_WAREHOUSE_SERVICE:jdbc:postgresql://localhost:5436/hw08db_warehouse_service}
+    username: ${SPRING_DATASOURCE_USERNAME_WAREHOUSE_SERVICE:hw08user_warehouse_service}
+    password: ${SPRING_DATASOURCE_PASSWORD_WAREHOUSE_SERVICE:hw08pass_warehouse_service}
+    driver-class-name: org.postgresql.Driver
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+
+server:
+  port: ${SERVER_PORT_WAREHOUSE_SERVICE:8004}
+
+management:
+  otlp:
+    tracing:
+      endpoint: ${MANAGEMENT_OTLP_TRACING_ENDPOINT:http://localhost:4318/v1/traces}
+  tracing:
+    sampling:
+      probability: ${MANAGEMENT_TRACING_SAMPLING_PROBABILITY:1.0}
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      show-details: always
+    chaosmonkey:
+      # Аннотация эндпоинта — @RestControllerEndpoint(enableByDefault = false),
+      # поэтому без явного включения бин эндпоинта не создаётся вовсе.
+      # (свойство access взаимоисключающе с enabled, поэтому только enabled)
+      enabled: ${CHAOS_MONKEY_ENABLED:false}
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus,chaosmonkey
+  metrics:
+    distribution:
+      percentiles-histogram:
+        http.server.requests: true
+      percentiles:
+        http.server.requests: 0.5, 0.95, 0.99
+    tags:
+      application: ${spring.application.name}
+  prometheus:
+    metrics:
+      export:
+        enabled: true
+
+# Chaos Monkey (de.codecentric) — инъекции отказов для сценариев Circuit Breaker.
+# Управление — через /actuator/chaosmonkey** (только JWT роли ADMIN, см. SecurityConfig).
+# По умолчанию выключен; включается переменной CHAOS_MONKEY_ENABLED (локальный .env, values.yaml).
+chaos:
+  monkey:
+    enabled: ${CHAOS_MONKEY_ENABLED:false}
+    watcher:
+      controller: true
+      rest-controller: true
+    assaults:
+      level: 1
+      latency-active: false
+      latency-range-start: 100
+      latency-range-end: 500
+      exceptions-active: false
+      kill-application-active: false
+
+logging:
+  config: classpath:logback-spring.xml
+  level:
+    root: INFO
+    ru.otus.hw: DEBUG
+    org.hibernate.SQL: DEBUG
+    org.springframework.context.support.PostProcessorRegistrationDelegate: ERROR
+
+app:
+  auth-service-url: ${AUTH_SERVICE_URL:http://localhost:8006}
+  security:
+    jwt-secret-key: ${JWT_SECRET_KEY:}
+  internal-api-key: ${INTERNAL_API_KEY}

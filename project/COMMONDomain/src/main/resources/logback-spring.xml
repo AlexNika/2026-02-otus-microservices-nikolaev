@@ -1,0 +1,95 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+
+    <!-- Подключаем дефолтные настройки логирования Spring Boot (включает поддержку цветов) -->
+    <include resource="org/springframework/boot/logging/logback/defaults.xml"/>
+
+    <!-- Читаем имя приложения и активный профиль из application.yaml -->
+    <springProperty scope="context" name="applicationName" source="spring.application.name" defaultValue="unknown-service"/>
+    <springProperty scope="context" name="activeProfile" source="spring.profiles.active" defaultValue="default"/>
+
+    <!-- ==================================================================== -->
+    <!-- 1. ЛОКАЛЬНАЯ РАЗРАБОТКА: Читаемый текст с цветами                   -->
+    <!-- Активируется для профилей: local, dev, default                      -->
+    <!-- ==================================================================== -->
+    <springProfile name="local, dev, default">
+
+        <appender name="CONSOLE_DEV" class="ch.qos.logback.core.ConsoleAppender">
+            <encoder>
+                <!--
+                    %highlight(%-5level) - красит уровень (ERROR - красный, WARN - желтый, INFO - зеленый)
+                    %cyan(%logger{36})   - красит имя класса в голубой
+                    [trace=%X{traceId:-},span=%X{spanId:-}] - выводит OTel traceId/spanId из MDC (ключи Spring Boot — camelCase), если они есть
+                -->
+                <pattern>%d{yyyy-MM-dd HH:mm:ss.SSS} %highlight(%-5level) [%15.15t] %cyan(%-40.40logger{39}) [trace=%X{traceId:-},span=%X{spanId:-}] - %msg%n</pattern>
+            </encoder>
+        </appender>
+
+        <root level="INFO">
+            <appender-ref ref="CONSOLE_DEV"/>
+        </root>
+
+        <!-- Для локальной разработки можно включить DEBUG для твоих пакетов -->
+        <logger name="ru.otus.hw" level="DEBUG" additivity="false">
+            <appender-ref ref="CONSOLE_DEV"/>
+        </logger>
+
+        <!-- Убираем шум от Spring при локальной разработке -->
+        <logger name="org.springframework" level="WARN"/>
+        <logger name="org.hibernate" level="WARN"/>
+
+    </springProfile>
+
+    <!-- ==================================================================== -->
+    <!-- 2. ПРОДАКШЕН / KUBERNETES: Строгий JSON для Loki                   -->
+    <!-- Активируется для профилей: prod, k8s, docker                        -->
+    <!-- ==================================================================== -->
+    <springProfile name="prod, k8s, docker">
+
+        <appender name="CONSOLE_JSON" class="ch.qos.logback.core.ConsoleAppender">
+            <encoder class="net.logstash.logback.encoder.LogstashEncoder">
+
+                <!-- Добавляем имя сервиса и окружение в каждый JSON -->
+                <customFields>{"app":"${applicationName}","env":"${activeProfile}"}</customFields>
+
+                <!-- Гарантируем, что ключи от micrometer-tracing-bridge-otel (camelCase) попадут в JSON
+                     и будут переименованы в snake_case (trace_id/span_id) для Alloy/Grafana -->
+                <includeMdcKeyName>traceId</includeMdcKeyName>
+                <includeMdcKeyName>spanId</includeMdcKeyName>
+                <mdcKeyFieldName>traceId=trace_id</mdcKeyFieldName>
+                <mdcKeyFieldName>spanId=span_id</mdcKeyFieldName>
+
+                <!-- Настройка вывода стектрейсов (чтобы не засорять логи лишними фреймами) -->
+                <throwableConverter class="net.logstash.logback.stacktrace.ShortenedThrowableConverter">
+                    <maxDepthPerThrowable>30</maxDepthPerThrowable>
+                    <maxLength>4096</maxLength>
+                    <rootCauseFirst>true</rootCauseFirst>
+                    <exclude>sun\.reflect\..*</exclude>
+                    <exclude>java\.lang\.reflect\..*</exclude>
+                    <exclude>org\.springframework\.cglib\..*</exclude>
+                </throwableConverter>
+
+                <timestampPattern>yyyy-MM-dd'T'HH:mm:ss.SSS'Z'</timestampPattern>
+                <includeCallerData>false</includeCallerData>
+                <shortenedLoggerNameLength>36</shortenedLoggerNameLength>
+
+            </encoder>
+        </appender>
+
+        <root level="INFO">
+            <appender-ref ref="CONSOLE_JSON"/>
+        </root>
+
+        <!-- В проде оставляем только INFO для бизнес-логики -->
+        <logger name="ru.otus.hw" level="INFO" additivity="false">
+            <appender-ref ref="CONSOLE_JSON"/>
+        </logger>
+
+        <logger name="org.springframework" level="WARN"/>
+        <logger name="org.hibernate" level="WARN"/>
+        <logger name="org.flywaydb" level="INFO"/>
+        <logger name="io.github.resilience4j" level="INFO"/>
+
+    </springProfile>
+
+</configuration>

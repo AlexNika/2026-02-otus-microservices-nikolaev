@@ -1,0 +1,38 @@
+erDiagram
+    USERS ||--o| USER_PROFILE : "profile_id FK (SET NULL)"
+    USERS ||--o{ USER_ADDRESSES : "user_id"
+    USERS {
+        BIGINT id PK "присваивается из события AUTH"
+        BIGINT version
+        VARCHAR email UK
+        BIGINT profile_id FK
+        VARCHAR account_status "PENDING/ACTIVE/BLOCKED (биллинг)"
+    }
+    USER_PROFILE {
+        BIGINT id PK
+        VARCHAR username
+        VARCHAR firstname
+        VARCHAR lastname
+        TIMESTAMP birthdate
+        VARCHAR phone UK "строго один, nullable"
+    }
+    USER_ADDRESSES {
+        BIGINT id PK
+        BIGINT user_id FK "CASCADE"
+        TEXT full_address
+        VARCHAR city
+        VARCHAR postal_code
+        BOOLEAN is_default
+        TEXT delivery_preferences
+    }
+    USER_OUTBOX {
+        BIGINT id PK
+        VARCHAR event_id UK "UUID события"
+        VARCHAR event_type "USER_CREATED/USER_SYNC"
+        TEXT payload
+        VARCHAR status "NEW/SENT/FAILED"
+        INTEGER attempts
+        TIMESTAMP sent_at
+        VARCHAR traceparent "W3C trace-context"
+        TEXT tracestate
+    }

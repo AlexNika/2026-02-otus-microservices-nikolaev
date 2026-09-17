@@ -1,0 +1,239 @@
+fullnameOverride: fp
+replicaCount: 1
+
+image:
+  repository: akinxela/otusapp
+  # Образы заранее загружаются в minikube (`minikube image pull`), чтобы не зависеть
+  # от доступности реестра в момент деплоя.
+  pullPolicy: IfNotPresent
+
+services:
+  auth-service:
+    imageTag: fp-auth
+    port: 8006
+    dbPasswordKey: SPRING_DATASOURCE_PASSWORD_AUTH_SERVICE
+    waitFor:
+      - fp-postgres-auth:5432
+      - fp-rabbitmq:5672
+    env:
+      SPRING_PROFILES_ACTIVE: k8s
+      SERVER_PORT_AUTH: "8006"
+      SPRING_FLYWAY_ENABLED: "true"
+      SPRING_DATASOURCE_URL_AUTH_SERVICE: jdbc:postgresql://fp-postgres-auth:5432/auth_db
+      SPRING_DATASOURCE_USERNAME_AUTH_SERVICE: fpuser_auth_service
+      RABBIT_ADDRESSES: fp-rabbitmq
+      JWT_ACCESS_EXPIRATION: "900000"
+      JWT_REFRESH_TTL_DAYS: "30"
+      BCRYPT_STRENGTH: "12"
+  user-service:
+    imageTag: fp-user
+    port: 8000
+    dbPasswordKey: SPRING_DATASOURCE_PASSWORD_USER_SERVICE
+    waitFor:
+      - fp-postgres-user:5432
+      - fp-rabbitmq:5672
+    env:
+      SPRING_PROFILES_ACTIVE: k8s
+      SERVER_PORT_USER_SERVICE: "8000"
+      SPRING_FLYWAY_ENABLED: "true"
+      SPRING_DATASOURCE_URL_USER_SERVICE: jdbc:postgresql://fp-postgres-user:5432/fpdb_user_service
+      SPRING_DATASOURCE_USERNAME_USER_SERVICE: fpuser_user_service
+      BILLING_SERVICE_URL: http://fp-billing-service:8001
+      RABBIT_ADDRESSES: fp-rabbitmq
+      JWT_ACCESS_EXPIRATION: "900000"
+      BCRYPT_STRENGTH: "12"
+  billing-service:
+    imageTag: fp-billing
+    port: 8001
+    dbPasswordKey: SPRING_DATASOURCE_PASSWORD_BILLING_SERVICE
+    waitFor:
+      - fp-postgres-billing:5432
+      - fp-rabbitmq:5672
+    env:
+      SPRING_PROFILES_ACTIVE: k8s
+      SERVER_PORT_BILLING_SERVICE: "8001"
+      SPRING_FLYWAY_ENABLED: "true"
+      SPRING_DATASOURCE_URL_BILLING_SERVICE: jdbc:postgresql://fp-postgres-billing:5432/fpdb_billing_service
+      SPRING_DATASOURCE_USERNAME_BILLING_SERVICE: fpuser_billing_service
+      RABBIT_ADDRESSES: fp-rabbitmq
+      CHAOS_MONKEY_ENABLED: "true"
+  order-service:
+    imageTag: fp-order
+    port: 8002
+    dbPasswordKey: SPRING_DATASOURCE_PASSWORD_ORDER_SERVICE
+    waitFor:
+      - fp-postgres-order:5432
+      - fp-rabbitmq:5672
+    env:
+      SPRING_PROFILES_ACTIVE: k8s
+      SERVER_PORT_ORDER_SERVICE: "8002"
+      SPRING_FLYWAY_ENABLED: "true"
+      SPRING_DATASOURCE_URL_ORDER_SERVICE: jdbc:postgresql://fp-postgres-order:5432/fpdb_order_service
+      SPRING_DATASOURCE_USERNAME_ORDER_SERVICE: fpuser_order_service
+      BILLING_SERVICE_URL: http://fp-billing-service:8001
+      WAREHOUSE_SERVICE_URL: http://fp-warehouse-service:8004
+      DELIVERY_SERVICE_URL: http://fp-delivery-service:8005
+      RABBIT_ADDRESSES: fp-rabbitmq
+  notification-service:
+    imageTag: fp-notification
+    port: 8003
+    dbPasswordKey: SPRING_DATASOURCE_PASSWORD_NOTIFICATION_SERVICE
+    waitFor:
+      - fp-postgres-notification:5432
+      - fp-rabbitmq:5672
+    env:
+      SPRING_PROFILES_ACTIVE: k8s
+      SERVER_PORT_NOTIFICATION_SERVICE: "8003"
+      SPRING_FLYWAY_ENABLED: "true"
+      SPRING_DATASOURCE_URL_NOTIFICATION_SERVICE: jdbc:postgresql://fp-postgres-notification:5432/fpdb_notification_service
+      SPRING_DATASOURCE_USERNAME_NOTIFICATION_SERVICE: fpuser_notification_service
+      RABBIT_ADDRESSES: fp-rabbitmq
+  warehouse-service:
+    imageTag: fp-warehouse
+    port: 8004
+    dbPasswordKey: SPRING_DATASOURCE_PASSWORD_WAREHOUSE_SERVICE
+    waitFor:
+      - fp-postgres-warehouse:5432
+    env:
+      SPRING_PROFILES_ACTIVE: k8s
+      SERVER_PORT_WAREHOUSE_SERVICE: "8004"
+      SPRING_FLYWAY_ENABLED: "true"
+      SPRING_DATASOURCE_URL_WAREHOUSE_SERVICE: jdbc:postgresql://fp-postgres-warehouse:5432/fpdb_warehouse_service
+      SPRING_DATASOURCE_USERNAME_WAREHOUSE_SERVICE: fpuser_warehouse_service
+      CHAOS_MONKEY_ENABLED: "true"
+  delivery-service:
+    imageTag: fp-delivery
+    port: 8005
+    dbPasswordKey: SPRING_DATASOURCE_PASSWORD_DELIVERY_SERVICE
+    waitFor:
+      - fp-postgres-delivery:5432
+      - fp-rabbitmq:5672
+    env:
+      SPRING_PROFILES_ACTIVE: k8s
+      SERVER_PORT_DELIVERY_SERVICE: "8005"
+      SPRING_FLYWAY_ENABLED: "true"
+      SPRING_DATASOURCE_URL_DELIVERY_SERVICE: jdbc:postgresql://fp-postgres-delivery:5432/fpdb_delivery_service
+      SPRING_DATASOURCE_USERNAME_DELIVERY_SERVICE: fpuser_delivery_service
+      RABBIT_ADDRESSES: fp-rabbitmq
+      CHAOS_MONKEY_ENABLED: "true"
+
+postgres:
+  postgres-auth:
+    database: auth_db
+    username: fpuser_auth_service
+    password: ""
+    passwordSecretKey: SPRING_DATASOURCE_PASSWORD_AUTH_SERVICE
+    storage: 1Gi
+  postgres-user:
+    database: fpdb_user_service
+    username: fpuser_user_service
+    password: ""
+    passwordSecretKey: SPRING_DATASOURCE_PASSWORD_USER_SERVICE
+    storage: 1Gi
+  postgres-billing:
+    database: fpdb_billing_service
+    username: fpuser_billing_service
+    password: ""
+    passwordSecretKey: SPRING_DATASOURCE_PASSWORD_BILLING_SERVICE
+    storage: 1Gi
+  postgres-order:
+    database: fpdb_order_service
+    username: fpuser_order_service
+    password: ""
+    passwordSecretKey: SPRING_DATASOURCE_PASSWORD_ORDER_SERVICE
+    storage: 1Gi
+  postgres-notification:
+    database: fpdb_notification_service
+    username: fpuser_notification_service
+    password: ""
+    passwordSecretKey: SPRING_DATASOURCE_PASSWORD_NOTIFICATION_SERVICE
+    storage: 1Gi
+  postgres-warehouse:
+    database: fpdb_warehouse_service
+    username: fpuser_warehouse_service
+    password: ""
+    passwordSecretKey: SPRING_DATASOURCE_PASSWORD_WAREHOUSE_SERVICE
+    storage: 1Gi
+  postgres-delivery:
+    database: fpdb_delivery_service
+    username: fpuser_delivery_service
+    password: ""
+    passwordSecretKey: SPRING_DATASOURCE_PASSWORD_DELIVERY_SERVICE
+    storage: 1Gi
+
+rabbitmq:
+  image:
+    repository: rabbitmq
+    tag: 4.1.3-management
+  username: guest
+  password: guest
+
+secrets:
+  internalApiKey: ""
+  jwtSecretKey: ""
+
+probes:
+  startupProbe:
+    httpGet:
+      path: /actuator/health
+      port: 8000
+    failureThreshold: 30
+    periodSeconds: 5
+  readinessProbe:
+    httpGet:
+      path: /actuator/health
+      port: 8000
+    initialDelaySeconds: 5
+    periodSeconds: 5
+    timeoutSeconds: 2
+    failureThreshold: 3
+  livenessProbe:
+    httpGet:
+      path: /actuator/health
+      port: 8000
+    initialDelaySeconds: 15
+    periodSeconds: 10
+    timeoutSeconds: 2
+    failureThreshold: 3
+
+ingress:
+  enabled: true
+  className: nginx
+  host: arch.finalproject
+
+networkPolicy:
+  enabled: false
+
+ingress-nginx:
+  enabled: false
+  controller:
+    image:
+      digest: ""
+    admissionWebhooks:
+      enabled: false
+    ingressClassResource:
+      enabled: true
+      name: nginx
+      default: true
+    metrics:
+      enabled: true
+      serviceMonitor:
+        enabled: false
+        additionalLabels:
+          release: monitoring
+    service:
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "10254"
+
+prometheus:
+  enabled: false
+  alertmanager:
+    enabled: false
+  server:
+    global:
+      scrape_interval: 15s
+    persistentVolume:
+      enabled: false
+
+

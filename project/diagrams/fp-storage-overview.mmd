@@ -1,0 +1,65 @@
+flowchart TB
+    subgraph AUTHG["AUTHService (владелец идентичности)"]
+        AUTHDB[("fp-postgres-auth<br/>auth_users · roles · user_roles<br/>refresh_tokens (token_hash SHA-256, UNIQUE)<br/>auth_outbox")]
+    end
+
+    subgraph USERG["USERService (проекция идентичности/профиля — source of truth контактов и адресов)"]
+        USERDB[("fp-postgres-user<br/>users (id из события AUTH, account_status)<br/>user_profile (phone UNIQUE)<br/>user_addresses (1:N)<br/>user_outbox (event_type)")]
+    end
+
+    subgraph BILLG["BILLINGService (владелец денег)"]
+        BILLDB[("fp-postgres-billing<br/>accounts (UNIQUE user_id — natural key)<br/>transactions (idempotency_key, частичный UNIQUE)")]
+    end
+
+    subgraph ORDERG["ORDERService (оркестратор саги заказа)"]
+        ORDERDB[("fp-postgres-order<br/>orders (order_status) · order_saga_state (saga_status, version)<br/>idempotency_keys (UNIQUE idempotency_key)<br/>notification_outbox")]
+    end
+
+    subgraph WHG["WAREHOUSEService (без AMQP — только sync)"]
+        WHDB[("fp-postgres-warehouse<br/>стоки / резервы товара<br/>(available, reserved)")]
+    end
+
+    subgraph DELG["DELIVERYService"]
+        DELDB[("fp-postgres-delivery<br/>слоты / брони курьеров<br/>read-модель адресов доставки")]
+    end
+
+    subgraph NOTG["NOTIFICATIONService"]
+        NOTDB[("fp-postgres-notification<br/>notifications<br/>processed_messages (PK = eventId — дедупликация)<br/>read-модель контактов")]
+    end
+
+    subgraph MQ["RabbitMQ 4.1.3 — 4 асинхронных событийных канала"]
+        EX1{{"обмен users.events<br/>ключ user.created"}}
+        EX2{{"обмен user.sync.events<br/>ключ user.profile.sync"}}
+        EX3{{"обмен accounts.events<br/>ключ account.created"}}
+        EX4{{"обмен notifications.events<br/>ключ notification.event"}}
+    end
+
+    AUTHDB -. "transactional outbox:<br/>критичное событие регистрации" .-> EX1
+    EX1 -. "user.user-created.queue" .-> USERDB
+    EX1 -. "billing.account-create.queue" .-> BILLDB
+
+    USERDB -. "transactional outbox:<br/>USER_SYNC при изменении профиля" .-> EX2
+    EX2 -. "notification.profile-sync.queue<br/>+ DLQ user.profile.sync.dlq" .-> NOTDB
+    EX2 -. "delivery.profile-sync.queue<br/>+ DLQ" .-> DELDB
+
+    BILLDB -. "публикация напрямую" .-> EX3
+    EX3 -. "user.account-activation.queue" .-> USERDB
+
+    ORDERDB -. "transactional outbox:<br/>итог заказа PLACED/FAILED" .-> EX4
+    EX4 -. "notification.queue<br/>+ DLQ notification.queue.dlq" .-> NOTDB
+
+    BILLDB -. "best-effort уведомление<br/>(потеря допустима)" .-> EX4
+    USERDB -. "best-effort уведомление" .-> EX4
+
+    ORDERG == "синхронный REST /internal/**<br/>(X-Internal-API-Key):<br/>1 withdraw · 2 reserve · 3 reserve<br/>+ confirm / cancel / status" ==> BILLG
+    ORDERG == "reserve товара" ==> WHG
+    ORDERG == "reserve курьера на слот" ==> DELG
+
+    style AUTHG fill:#e9f0ff,stroke:#4f6db6
+    style USERG fill:#e9f0ff,stroke:#4f6db6
+    style BILLG fill:#fff6e0,stroke:#b6934f
+    style ORDERG fill:#e6ffe9,stroke:#4fb65f
+    style WHG fill:#f2e9ff,stroke:#7a4fb6
+    style DELG fill:#f2e9ff,stroke:#7a4fb6
+    style NOTG fill:#ffe9e9,stroke:#b64f4f
+    style MQ fill:#fffbe6,stroke:#b6b04f

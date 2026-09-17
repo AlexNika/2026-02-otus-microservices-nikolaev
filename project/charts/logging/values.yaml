@@ -1,0 +1,125 @@
+loki:
+  fullnameOverride: logging-loki
+  deploymentMode: SingleBinary
+  gateway:
+    ingress:
+      enabled: true
+      ingressClassName: nginx
+      annotations:
+        nginx.ingress.kubernetes.io/rewrite-target: /
+        nginx.ingress.kubernetes.io/ssl-redirect: "false"
+      hosts:
+        - host: arch.finalproject
+          paths:
+            - path: /loki
+              pathType: Prefix
+  loki:
+    auth_enabled: false
+    commonConfig:
+      replication_factor: 1
+    limits_config:
+      retention_period: 24h
+      allow_structured_metadata: true
+      volume_enabled: true
+    compactor:
+      retention_enabled: true
+      delete_request_store: filesystem
+    storage:
+      type: filesystem
+
+    schemaConfig:
+      configs:
+        - from: "2024-04-01"
+          store: tsdb
+          object_store: filesystem
+          schema: v13
+          index:
+            prefix: loki_index_
+            period: 24h
+
+  singleBinary:
+    replicas: 1
+    persistence:
+      enabled: false
+
+    extraVolumes:
+      - name: loki-storage
+        emptyDir: {}
+
+    extraVolumeMounts:
+      - name: loki-storage
+        mountPath: /var/loki
+
+    resources:
+      requests:
+        memory: 256Mi
+        cpu: 100m
+      limits:
+        memory: 512Mi
+        cpu: 500m
+
+  read:
+    replicas: 0
+  write:
+    replicas: 0
+  backend:
+    replicas: 0
+
+alloy:
+  fullnameOverride: logging-alloy
+  alloy:
+    mounts:
+      varlog: true
+      dockercontainers: true
+    configMap:
+      content: |
+        logging {
+          level  = "info"
+          format = "logfmt"
+        }
+
+        discovery.kubernetes "pods" {
+          role = "pod"
+        }
+
+        loki.source.kubernetes "pods" {
+          targets    = discovery.kubernetes.pods.targets
+          forward_to = [loki.process.pods.receiver]
+        }
+
+        loki.process "pods" {
+          stage.json {
+            expressions = {
+              app      = "app",
+              env      = "env",
+              level    = "level",
+              trace_id = "trace_id",
+              span_id  = "span_id",
+            }
+          }
+          stage.structured_metadata {
+            values = {
+              trace_id = "",
+              span_id  = "",
+            }
+          }
+          stage.labels {
+            values = {
+              app       = "",
+              env       = "",
+              level     = "",
+              namespace = "namespace",
+            }
+          }
+          forward_to = [loki.write.local.receiver]
+        }
+
+        loki.write "local" {
+          endpoint {
+            url = "http://logging-loki-gateway.otus-msa-logging.svc.cluster.local/loki/api/v1/push"
+          }
+        }
+  rbac:
+    create: true
+  controller:
+    type: daemonset

@@ -1,0 +1,41 @@
+FP microservices installed (release: {{ .Release.Name }}, namespace: {{ .Release.Namespace }}).
+
+1. Get the minikube IP and map the host:
+     minikube ip
+   Add to C:\Windows\System32\drivers\etc\hosts (as Administrator):
+     <minikube-ip> {{ .Values.ingress.host }}
+   If the ingress is not reachable, run in a separate elevated PowerShell window:
+     minikube tunnel
+
+2. Application endpoints (base URL: http://{{ .Values.ingress.host }}):
+     GET  http://{{ .Values.ingress.host }}/health/user
+     GET  http://{{ .Values.ingress.host }}/health/billing
+     GET  http://{{ .Values.ingress.host }}/health/order
+     GET  http://{{ .Values.ingress.host }}/health/notification
+     GET  http://{{ .Values.ingress.host }}/health/warehouse
+     GET  http://{{ .Values.ingress.host }}/health/delivery
+     POST http://{{ .Values.ingress.host }}/api/v1/auth/register
+     GET  http://{{ .Values.ingress.host }}/api/v1/account/user/{userId}
+     POST http://{{ .Values.ingress.host }}/api/v1/account/{userId}/deposit
+     POST http://{{ .Values.ingress.host }}/api/v1/order
+     GET  http://{{ .Values.ingress.host }}/api/v1/notification?userId={userId}
+     GET  http://{{ .Values.ingress.host }}/api/v1/products
+     GET  http://{{ .Values.ingress.host }}/api/v1/delivery/slots
+
+3. Monitoring:
+     Grafana UI:      http://{{ .Values.ingress.host }}/grafana
+       login: admin, password: grafana.adminPassword из charts/fp/values-secret.yaml
+       (развернутые дашборды: Spring Boot 3.x Statistics, RabbitMQ-Overview, Node Exporter Full)
+     Prometheus UI:   kubectl port-forward svc/{{ .Release.Name }}-prometheus-server 9090:80
+       затем http://localhost:9090 (наружу через ingress не выставляется)
+     Примечания:
+       - URL datasource в Grafana захардкожен на http://{{ .Release.Name }}-prometheus-server;
+         при смене имени релиза ('{{ .Release.Name }}' в scripts/03-helm-fp-install.ps1)
+         обновить grafana.datasources в values.
+       - Данные Prometheus хранятся в emptyDir (prometheus.server.persistentVolume.enabled: false)
+         и теряются при рестарте пода; для сохранения истории включить persistentVolume.
+        - Все дашборды развертываются из ConfigMap monitoring-grafana-dashboards
+          (JSON лежат в charts/monitoring/dashboards/), интернет при старте Grafana не нужен.
+
+4. Check pod status:
+     kubectl get pods

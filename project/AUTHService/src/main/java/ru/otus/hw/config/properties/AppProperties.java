@@ -1,0 +1,23 @@
+package ru.otus.hw.config.properties;
+
+import jakarta.annotation.PostConstruct;
+import lombok.Getter;
+import lombok.Setter;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.boot.context.properties.ConfigurationProperties;
+import org.springframework.context.annotation.Configuration;
+
+@Slf4j
+@Getter
+@Setter
+@Configuration
+@ConfigurationProperties(prefix = "app")
+public class AppProperties implements InternalApiKeyConfig {
+
+    private String internalApiKey;
+
+    @PostConstruct
+    public void logProperties() {
+        log.debug("Loaded InternalApiKey: InternalApiKey={}", internalApiKey == null ? "<not set>" : "***");
+    }
+}

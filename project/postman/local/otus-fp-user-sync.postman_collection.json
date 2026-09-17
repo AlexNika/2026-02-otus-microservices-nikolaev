@@ -1,0 +1,774 @@
+{
+  "info": {
+    "_postman_id": "b2e8c4f1-91d3-4a67-8f0e-usersync001",
+    "name": "OTUS - Microservices Final Project - User Sync Replication (USER -> NOTIFICATION, DELIVERY)",
+    "description": "E2E сценарий асинхронной репликации контактных данных пользователя (USER -> NOTIFICATION, DELIVERY):\n1. Регистрация пользователя с phone и 2 адресами доставки -> 201. В одной транзакции в общий outbox записываются UserCreatedEvent (USER -> BILLING) и UserSyncEvent (полный снимок контактов и адресов).\n2. Логин -> JWT.\n3. GET /api/v1/profile - телефон и адреса с созданными id.\n4. PUT /api/v1/profile (Bearer) - смена phone, обновление адреса #1 (isDefault=false), удаление адреса #2, добавление нового адреса без id. Публикуется новый UserSyncEvent.\n5. Проверки read-моделей через внутренние эндпоинты (заголовок X-Internal-API-Key): GET {{notificationServiceUrl}}/internal/contacts/user/{{userId}} и GET {{deliveryServiceUrl}}/internal/delivery/user-addresses/{{userId}}.\n6. Повторный PUT с тем же телом (имитация повторной доставки на уровне API) -> read-модели без изменений и без дублей (идемпотентность: NOTIFICATION - processed_messages + PK user_id, DELIVERY - upsert по (user_id, source_address_id) + delete-not-in).\n\nЗапуск: newman run postman/local/otus-fp-user-sync.postman_collection.json -e postman/local/local.postman_environment.json --env-var internalApiKey=<ключ из fp/.env>.\n\nПредпосылки: поднята инфраструктура DEV/docker-compose.yaml (6x PostgreSQL + RabbitMQ); запущены USERService (со SPRING_FLYWAY_ENABLED=true, иначе миграция V6 не накатится), NOTIFICATIONService и DELIVERYService с переменными из fp/.env. USER -> BILLING канал работает: outbox-планировщик публикует USER_CREATED в users.events и USER_SYNC в user.sync.events (цикл ~1 c).\n\nРучные SQL-проверки (pgAdmin/psql):\n-- 1) Outbox: события USER_SYNC публикуются (event_type='USER_SYNC')\nSELECT id, event_id, event_type, status, attempts, created_at, sent_at FROM user_outbox WHERE event_type = 'USER_SYNC' ORDER BY id;\n-- 2) NOTIFICATION read-модель: ровно одна строка на пользователя\nSELECT user_id, email, phone, updated_at FROM notification_contacts WHERE user_id = <userId>;\n-- 3) DELIVERY read-модель: адреса без дублей (UNIQUE(user_id, source_address_id))\nSELECT user_id, source_address_id, full_address, city, postal_code, is_default, updated_at FROM delivery_user_addresses WHERE user_id = <userId> ORDER BY source_address_id;",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "01 - Health USERService",
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "exec": [
+              "// Уникальные данные прогона: коллекцию можно запускать повторно.",
+              "var runBase = Date.now();",
+              "pm.collectionVariables.set(\"runBase\", String(runBase));",
+              "pm.collectionVariables.set(\"userName\", \"sync_user_\" + runBase);",
+              "pm.collectionVariables.set(\"userEmail\", \"sync.user.\" + runBase + \"@test.com\");",
+              "// phone строго один (UNIQUE): уникализируем хвостом runBase (11 цифр всего).",
+              "var phoneTail = String(runBase).slice(-7);",
+              "pm.collectionVariables.set(\"phoneInitial\", \"+7999\" + phoneTail);",
+              "pm.collectionVariables.set(\"phoneUpdated\", \"+7998\" + phoneTail);",
+              "console.log(\"User-sync run: base=\" + runBase + \", email=\" + pm.collectionVariables.get(\"userEmail\"));"
+            ],
+            "type": "text/javascript"
+          }
+        },
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Status code is 200\", function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.test(\"Body has status UP\", function () {",
+              "    var jsonData = pm.response.json();",
+              "    pm.expect(jsonData.status).to.eql(\"UP\");",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{userServiceUrl}}/actuator/health",
+          "host": [
+            "{{userServiceUrl}}"
+          ],
+          "path": [
+            "actuator",
+            "health"
+          ]
+        },
+        "description": "Проверка, что USERService запущен (порт 8000)."
+      },
+      "response": []
+    },
+    {
+      "name": "02 - Health NOTIFICATIONService",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Status code is 200\", function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.test(\"Body has status UP\", function () {",
+              "    var jsonData = pm.response.json();",
+              "    pm.expect(jsonData.status).to.eql(\"UP\");",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{notificationServiceUrl}}/actuator/health",
+          "host": [
+            "{{notificationServiceUrl}}"
+          ],
+          "path": [
+            "actuator",
+            "health"
+          ]
+        },
+        "description": "Проверка, что NOTIFICATIONService запущен (порт 8003)."
+      },
+      "response": []
+    },
+    {
+      "name": "03 - Health DELIVERYService",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Status code is 200\", function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.test(\"Body has status UP\", function () {",
+              "    var jsonData = pm.response.json();",
+              "    pm.expect(jsonData.status).to.eql(\"UP\");",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{deliveryServiceUrl}}/actuator/health",
+          "host": [
+            "{{deliveryServiceUrl}}"
+          ],
+          "path": [
+            "actuator",
+            "health"
+          ]
+        },
+        "description": "Проверка, что DELIVERYService запущен (порт 8005)."
+      },
+      "response": []
+    },
+    {
+      "name": "04 - Register user with phone and 2 addresses",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Status code is 201\", function () {",
+              "    pm.response.to.have.status(201);",
+              "});",
+              "",
+              "var jsonData = pm.response.json();",
+              "pm.collectionVariables.set(\"userId\", jsonData.id);",
+              "console.log(\"User registered with ID: \" + jsonData.id + \" (UserCreatedEvent + UserSyncEvent appended to outbox)\");",
+              "",
+              "pm.test(\"User data matches sent data\", function () {",
+              "    pm.expect(jsonData.email).to.eql(pm.collectionVariables.get(\"userEmail\"));",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n    \"userName\": \"{{userName}}\",\n    \"firstName\": \"Sync\",\n    \"lastName\": \"User\",\n    \"email\": \"{{userEmail}}\",\n    \"password\": \"Password1!\",\n    \"phone\": \"{{phoneInitial}}\",\n    \"addresses\": [\n        {\n            \"fullAddress\": \"Moscow, Tverskaya st. 7\",\n            \"city\": \"Moscow\",\n            \"postalCode\": \"125009\",\n            \"isDefault\": true,\n            \"deliveryPreferences\": \"Call before delivery\"\n        },\n        {\n            \"fullAddress\": \"SPb, Nevsky pr. 1\",\n            \"city\": \"SPb\",\n            \"postalCode\": \"191186\",\n            \"isDefault\": false,\n            \"deliveryPreferences\": null\n        }\n    ]\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{authServiceUrl}}/api/v1/auth/register",
+          "host": [
+            "{{authServiceUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "auth",
+            "register"
+          ]
+        },
+        "description": "Регистрация с опциональными phone и addresses (полный снимок публикуется UserSyncEvent)."
+      },
+      "response": []
+    },
+    {
+      "name": "05 - Login (save JWT)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Status code is 200\", function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "var jsonData = pm.response.json();",
+              "pm.collectionVariables.set(\"token\", jsonData.accessToken);",
+              "",
+              "pm.test(\"Token issued for the registered user\", function () {",
+              "    pm.expect(jsonData.accessToken).to.be.a(\"string\").and.not.empty;",
+              "    pm.expect(Number(jsonData.userId)).to.eql(Number(pm.collectionVariables.get(\"userId\")));",
+              "    pm.expect(jsonData.email).to.eql(pm.collectionVariables.get(\"userEmail\"));",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n    \"email\": \"{{userEmail}}\",\n    \"password\": \"Password1!\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{authServiceUrl}}/api/v1/auth/login",
+          "host": [
+            "{{authServiceUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "auth",
+            "login"
+          ]
+        },
+        "description": "Логин зарегистрированного пользователя (PENDING-статус логин не блокирует)."
+      },
+      "response": []
+    },
+    {
+      "name": "06 - GET profile (capture address ids)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "// Profile is created asynchronously after registration",
+              "// (AUTH outbox -> users.events -> USERService consumer): poll until it appears.",
+              "var maxAttempts = 15;",
+              "var attempt = parseInt(pm.collectionVariables.get(\"syncPollAttempt\") || \"1\", 10);",
+              "",
+              "if (pm.response.code === 404 && attempt < maxAttempts) {",
+              "    console.log(\"Attempt \" + attempt + \"/\" + maxAttempts + \": profile not created yet, retrying GET profile...\");",
+              "    pm.collectionVariables.set(\"syncPollAttempt\", String(attempt + 1));",
+              "    postman.setNextRequest(pm.info.requestName);",
+              "} else {",
+              "    pm.collectionVariables.set(\"syncPollAttempt\", \"1\");",
+              "",
+              "    pm.test(\"Status code is 200\", function () {",
+              "        pm.response.to.have.status(200);",
+              "    });",
+              "",
+              "    var jsonData = pm.response.json();",
+              "    pm.test(\"Profile contains phone and 2 addresses with created ids\", function () {",
+              "        pm.expect(jsonData.phone).to.eql(pm.collectionVariables.get(\"phoneInitial\"));",
+              "        pm.expect(jsonData.addresses).to.be.an(\"array\").with.lengthOf(2);",
+              "        jsonData.addresses.forEach(function (a) {",
+              "            pm.expect(a.addressId).to.be.a(\"number\");",
+              "        });",
+              "    });",
+              "",
+              "    pm.collectionVariables.set(\"addressId1\", jsonData.addresses[0].addressId);",
+              "    pm.collectionVariables.set(\"addressId2\", jsonData.addresses[1].addressId);",
+              "    console.log(\"Captured address ids: \" + jsonData.addresses[0].addressId + \", \" + jsonData.addresses[1].addressId);",
+              "}"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{token}}",
+              "type": "string"
+            }
+          ]
+        },
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{userServiceUrl}}/api/v1/profile",
+          "host": [
+            "{{userServiceUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "profile"
+          ]
+        },
+        "description": "Профиль текущего пользователя: фиксируем созданные id адресов для следующего шага."
+      },
+      "response": []
+    },
+    {
+      "name": "07 - PUT profile (change phone, update address 1, delete address 2, add new)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Status code is 200\", function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "var jsonData = pm.response.json();",
+              "var id1 = Number(pm.collectionVariables.get(\"addressId1\"));",
+              "var id2 = Number(pm.collectionVariables.get(\"addressId2\"));",
+              "",
+              "pm.test(\"Phone updated\", function () {",
+              "    pm.expect(jsonData.phone).to.eql(pm.collectionVariables.get(\"phoneUpdated\"));",
+              "});",
+              "",
+              "pm.test(\"Addresses replaced: updated id1 kept, id2 removed, new address added\", function () {",
+              "    pm.expect(jsonData.addresses).to.be.an(\"array\").with.lengthOf(2);",
+              "    var ids = jsonData.addresses.map(function (a) { return Number(a.addressId); });",
+              "    pm.expect(ids).to.include(id1);",
+              "    pm.expect(ids).to.not.include(id2);",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{token}}",
+              "type": "string"
+            }
+          ]
+        },
+        "method": "PUT",
+        "header": [],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n    \"userName\": \"{{userName}}\",\n    \"firstName\": \"Sync\",\n    \"lastName\": \"User\",\n    \"phone\": \"{{phoneUpdated}}\",\n    \"addresses\": [\n        {\n            \"addressId\": {{addressId1}},\n            \"fullAddress\": \"Moscow, Tverskaya st. 7 apt 5\",\n            \"city\": \"Moscow\",\n            \"postalCode\": \"125009\",\n            \"isDefault\": false,\n            \"deliveryPreferences\": \"Call before delivery\"\n        },\n        {\n            \"fullAddress\": \"Kazan, Baumana st. 12\",\n            \"city\": \"Kazan\",\n            \"postalCode\": \"420111\",\n            \"isDefault\": true,\n            \"deliveryPreferences\": null\n        }\n    ]\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{userServiceUrl}}/api/v1/profile",
+          "host": [
+            "{{userServiceUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "profile"
+          ]
+        },
+        "description": "Полная замена снимка адресов: update по addressId, insert нового без id, delete отсутствующего. Публикуется новый UserSyncEvent."
+      },
+      "response": []
+    },
+    {
+      "name": "08 - NOTIFICATION internal contacts (replicated phone/email)",
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "exec": [
+              "// Пауза 5 c (busy-wait): outbox-планировщик публикует UserSyncEvent с циклом ~1 c,",
+              "// consumer применяет read-модель. При нестабильном окружении перезапустите запрос.",
+              "var waitUntil = Date.now() + 5000;",
+              "while (Date.now() < waitUntil) { /* wait */ }"
+            ],
+            "type": "text/javascript"
+          }
+        },
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "// Contact read-model is updated asynchronously by the NOTIFICATIONService consumer",
+              "// after the profile event: poll until the updated phone is replicated.",
+              "var maxAttempts = 15;",
+              "var attempt = parseInt(pm.collectionVariables.get(\"syncPollAttempt\") || \"1\", 10);",
+              "",
+              "var ready = false;",
+              "if (pm.response.code === 200) {",
+              "    var contact = pm.response.json();",
+              "    ready = contact && contact.phone === pm.collectionVariables.get(\"phoneUpdated\");",
+              "}",
+              "",
+              "if (!ready && attempt < maxAttempts) {",
+              "    console.log(\"Attempt \" + attempt + \"/\" + maxAttempts + \": NOTIFICATION read-model not replicated yet, retrying...\");",
+              "    pm.collectionVariables.set(\"syncPollAttempt\", String(attempt + 1));",
+              "    postman.setNextRequest(pm.info.requestName);",
+              "} else {",
+              "    pm.collectionVariables.set(\"syncPollAttempt\", \"1\");",
+              "",
+              "    pm.test(\"Status code is 200\", function () {",
+              "        pm.response.to.have.status(200);",
+              "    });",
+              "",
+              "    var jsonData = pm.response.json();",
+              "    pm.test(\"Contact read-model replicated: userId, email and updated phone\", function () {",
+              "        pm.expect(Number(jsonData.userId)).to.eql(Number(pm.collectionVariables.get(\"userId\")));",
+              "        pm.expect(jsonData.email).to.eql(pm.collectionVariables.get(\"userEmail\"));",
+              "        pm.expect(jsonData.phone).to.eql(pm.collectionVariables.get(\"phoneUpdated\"));",
+              "    });",
+              "}"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "X-Internal-API-Key",
+            "value": "{{internalApiKey}}"
+          }
+        ],
+        "url": {
+          "raw": "{{notificationServiceUrl}}/internal/contacts/user/{{userId}}",
+          "host": [
+            "{{notificationServiceUrl}}"
+          ],
+          "path": [
+            "internal",
+            "contacts",
+            "user",
+            "{{userId}}"
+          ]
+        },
+        "description": "Read-модель контактов NOTIFICATIONService после репликации UserSyncEvent."
+      },
+      "response": []
+    },
+    {
+      "name": "09 - DELIVERY internal user-addresses (replicated snapshot)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "// Address read-model snapshot is updated asynchronously by the DELIVERYService consumer",
+              "// after the profile event: poll until the update is reflected.",
+              "var maxAttempts = 15;",
+              "var attempt = parseInt(pm.collectionVariables.get(\"syncPollAttempt\") || \"1\", 10);",
+              "",
+              "var id1 = Number(pm.collectionVariables.get(\"addressId1\"));",
+              "var id2 = Number(pm.collectionVariables.get(\"addressId2\"));",
+              "",
+              "var ready = false;",
+              "if (pm.response.code === 200) {",
+              "    var snapshot = pm.response.json();",
+              "    if (Array.isArray(snapshot) && snapshot.length === 2) {",
+              "        var kept = snapshot.find(function (a) { return Number(a.sourceAddressId) === id1; });",
+              "        var removed = snapshot.find(function (a) { return Number(a.sourceAddressId) === id2; });",
+              "        ready = !!kept && kept.fullAddress === \"Moscow, Tverskaya st. 7 apt 5\" && !removed;",
+              "    }",
+              "}",
+              "",
+              "if (!ready && attempt < maxAttempts) {",
+              "    console.log(\"Attempt \" + attempt + \"/\" + maxAttempts + \": DELIVERY read-model not replicated yet, retrying...\");",
+              "    pm.collectionVariables.set(\"syncPollAttempt\", String(attempt + 1));",
+              "    postman.setNextRequest(pm.info.requestName);",
+              "} else {",
+              "    pm.collectionVariables.set(\"syncPollAttempt\", \"1\");",
+              "",
+              "    pm.test(\"Status code is 200\", function () {",
+              "        pm.response.to.have.status(200);",
+              "    });",
+              "",
+              "    var list = pm.response.json();",
+              "",
+              "    pm.test(\"Address read-model replicated: exactly 2 addresses without duplicates\", function () {",
+              "        pm.expect(list).to.be.an(\"array\").with.lengthOf(2);",
+              "        var ids = list.map(function (a) { return Number(a.sourceAddressId); });",
+              "        pm.expect(new Set(ids).size).to.eql(ids.length);",
+              "    });",
+              "",
+              "    pm.test(\"Updated address kept, deleted address absent, new address present\", function () {",
+              "        var kept = list.find(function (a) { return Number(a.sourceAddressId) === id1; });",
+              "        pm.expect(kept, \"addressId1 must be present\").to.not.be.undefined;",
+              "        pm.expect(kept.fullAddress).to.eql(\"Moscow, Tverskaya st. 7 apt 5\");",
+              "        pm.expect(kept.isDefault).to.eql(false);",
+              "",
+              "        var removed = list.find(function (a) { return Number(a.sourceAddressId) === id2; });",
+              "        pm.expect(removed, \"addressId2 must be removed\").to.be.undefined;",
+              "",
+              "        var added = list.find(function (a) { return Number(a.sourceAddressId) !== id1; });",
+              "        pm.expect(added).to.not.be.undefined;",
+              "        pm.expect(added.fullAddress).to.eql(\"Kazan, Baumana st. 12\");",
+              "        pm.expect(added.isDefault).to.eql(true);",
+              "    });",
+              "}"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "X-Internal-API-Key",
+            "value": "{{internalApiKey}}"
+          }
+        ],
+        "url": {
+          "raw": "{{deliveryServiceUrl}}/internal/delivery/user-addresses/{{userId}}",
+          "host": [
+            "{{deliveryServiceUrl}}"
+          ],
+          "path": [
+            "internal",
+            "delivery",
+            "user-addresses",
+            "{{userId}}"
+          ]
+        },
+        "description": "Read-модель адресов DELIVERYService после репликации UserSyncEvent."
+      },
+      "response": []
+    },
+    {
+      "name": "10 - PUT profile again (same body, idempotency simulation)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Status code is 200\", function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "var jsonData = pm.response.json();",
+              "pm.test(\"Profile state unchanged after duplicate update\", function () {",
+              "    pm.expect(jsonData.phone).to.eql(pm.collectionVariables.get(\"phoneUpdated\"));",
+              "    pm.expect(jsonData.addresses).to.be.an(\"array\").with.lengthOf(2);",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{token}}",
+              "type": "string"
+            }
+          ]
+        },
+        "method": "PUT",
+        "header": [],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n    \"userName\": \"{{userName}}\",\n    \"firstName\": \"Sync\",\n    \"lastName\": \"User\",\n    \"phone\": \"{{phoneUpdated}}\",\n    \"addresses\": [\n        {\n            \"addressId\": {{addressId1}},\n            \"fullAddress\": \"Moscow, Tverskaya st. 7 apt 5\",\n            \"city\": \"Moscow\",\n            \"postalCode\": \"125009\",\n            \"isDefault\": false,\n            \"deliveryPreferences\": \"Call before delivery\"\n        },\n        {\n            \"fullAddress\": \"Kazan, Baumana st. 12\",\n            \"city\": \"Kazan\",\n            \"postalCode\": \"420111\",\n            \"isDefault\": true,\n            \"deliveryPreferences\": null\n        }\n    ]\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{userServiceUrl}}/api/v1/profile",
+          "host": [
+            "{{userServiceUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "profile"
+          ]
+        },
+        "description": "Имитация повторной доставки: тот же снимок публикуется ещё раз; read-модели не должны измениться."
+      },
+      "response": []
+    },
+    {
+      "name": "11 - NOTIFICATION internal contacts after duplicate event",
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "exec": [
+              "// Пауза 5 c (busy-wait): ждём применение повторного UserSyncEvent.",
+              "var waitUntil = Date.now() + 5000;",
+              "while (Date.now() < waitUntil) { /* wait */ }"
+            ],
+            "type": "text/javascript"
+          }
+        },
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Status code is 200\", function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "var jsonData = pm.response.json();",
+              "pm.test(\"Contact unchanged and without duplicates after duplicate delivery\", function () {",
+              "    pm.expect(Number(jsonData.userId)).to.eql(Number(pm.collectionVariables.get(\"userId\")));",
+              "    pm.expect(jsonData.email).to.eql(pm.collectionVariables.get(\"userEmail\"));",
+              "    pm.expect(jsonData.phone).to.eql(pm.collectionVariables.get(\"phoneUpdated\"));",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "X-Internal-API-Key",
+            "value": "{{internalApiKey}}"
+          }
+        ],
+        "url": {
+          "raw": "{{notificationServiceUrl}}/internal/contacts/user/{{userId}}",
+          "host": [
+            "{{notificationServiceUrl}}"
+          ],
+          "path": [
+            "internal",
+            "contacts",
+            "user",
+            "{{userId}}"
+          ]
+        },
+        "description": "Повторная проверка: одна запись, дубль не появился (PK user_id + dedup по eventId)."
+      },
+      "response": []
+    },
+    {
+      "name": "12 - DELIVERY internal user-addresses after duplicate event",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Status code is 200\", function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "var list = pm.response.json();",
+              "var id1 = Number(pm.collectionVariables.get(\"addressId1\"));",
+              "",
+              "pm.test(\"Addresses unchanged and without duplicates after duplicate delivery\", function () {",
+              "    pm.expect(list).to.be.an(\"array\").with.lengthOf(2);",
+              "    var ids = list.map(function (a) { return Number(a.sourceAddressId); });",
+              "    pm.expect(new Set(ids).size).to.eql(ids.length);",
+              "    var kept = list.find(function (a) { return Number(a.sourceAddressId) === id1; });",
+              "    pm.expect(kept.fullAddress).to.eql(\"Moscow, Tverskaya st. 7 apt 5\");",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "X-Internal-API-Key",
+            "value": "{{internalApiKey}}"
+          }
+        ],
+        "url": {
+          "raw": "{{deliveryServiceUrl}}/internal/delivery/user-addresses/{{userId}}",
+          "host": [
+            "{{deliveryServiceUrl}}"
+          ],
+          "path": [
+            "internal",
+            "delivery",
+            "user-addresses",
+            "{{userId}}"
+          ]
+        },
+        "description": "Повторная проверка: состав адресов тот же, дублей нет (UNIQUE(user_id, source_address_id))."
+      },
+      "response": []
+    }
+  ],
+  "variable": [
+    {
+      "key": "runBase",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "userName",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "userEmail",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "phoneInitial",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "phoneUpdated",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "userId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "token",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "addressId1",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "addressId2",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "value": "http://localhost:8006",
+      "type": "default",
+      "key": "authServiceUrl"
+    },
+    {
+      "value": "",
+      "type": "default",
+      "key": "adminToken"
+    },
+    {
+      "value": "",
+      "type": "default",
+      "key": "userToken"
+    },
+    {
+      "value": "1",
+      "key": "syncPollAttempt"
+    }
+  ]
+}

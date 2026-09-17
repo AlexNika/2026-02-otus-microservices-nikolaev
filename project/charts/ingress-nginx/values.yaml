@@ -1,0 +1,20 @@
+fullnameOverride: ingress-nginx
+ingress-nginx:
+  controller:
+    fullnameOverride: ingress-nginx
+    image:
+      digest: ""
+    admissionWebhooks:
+      enabled: false
+    ingressClassResource:
+      enabled: true
+      name: nginx
+      default: true
+    metrics:
+      enabled: true
+      serviceMonitor:
+        enabled: false
+    service:
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "10254"

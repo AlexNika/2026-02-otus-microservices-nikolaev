@@ -1,0 +1,100 @@
+{{- /*
+Defense in depth: ограничение ВХОДЯЩЕГО трафика в поды релиза
+(см. networkPolicy.enabled в values.yaml; по умолчанию выключено).
+
+Правила:
+  - поды сервисов принимают трафик только из своего неймспейса
+    (межсервисные вызовы) и от ингресс-контроллера (минимальный
+    контур публикации наружу);
+  - ингресс в Postgres/RabbitMQ — только из подов своего неймспейса.
+
+Egress не ограничивается: резолвинг имён через kube-dns/CoreDNS
+и исходящие вызовы сервисов остаются свободными.
+*/ -}}
+{{- if .Values.networkPolicy.enabled }}
+{{- $fullname := include "finalproject.fullname" . }}
+{{- range $name, $svc := .Values.services }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ $fullname }}-{{ $name }}-ingress
+  labels:
+    {{- include "finalproject.labels" $ | nindent 4 }}
+    app.kubernetes.io/name: {{ $name }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: {{ $name }}
+      app.kubernetes.io/instance: {{ $.Release.Name }}
+  policyTypes:
+    - Ingress
+  ingress:
+    # Межсервисные вызовы внутри релиза (например, ORDER -> BILLING)
+    - from:
+        - podSelector: {}
+      ports:
+        - protocol: TCP
+          port: {{ $svc.port }}
+    # Ингресс-контроллер: аддон minikube живёт в kube-system
+    # (поды суб-чарта ingress-nginx покрыты правилом выше — тот же неймспейс)
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: ingress-nginx
+      ports:
+        - protocol: TCP
+          port: {{ $svc.port }}
+{{- end }}
+{{- range $name, $pg := .Values.postgres }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ $fullname }}-{{ $name }}-ingress
+  labels:
+    {{- include "finalproject.labels" $ | nindent 4 }}
+    app.kubernetes.io/name: {{ $name }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: {{ $name }}
+      app.kubernetes.io/instance: {{ $.Release.Name }}
+  policyTypes:
+    - Ingress
+  ingress:
+    # Доступ к БД — только из подов приложения своего релиза
+    - from:
+        - podSelector: {}
+      ports:
+        - protocol: TCP
+          port: 5432
+{{- end }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ $fullname }}-rabbitmq-ingress
+  labels:
+    {{- include "finalproject.labels" . | nindent 4 }}
+    app.kubernetes.io/name: rabbitmq
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: rabbitmq
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  policyTypes:
+    - Ingress
+  ingress:
+    # AMQP и management-консоль — только из подов приложения своего релиза
+    - from:
+        - podSelector: {}
+      ports:
+        - protocol: TCP
+          port: 5672
+        - protocol: TCP
+          port: 15672
+{{- end }}

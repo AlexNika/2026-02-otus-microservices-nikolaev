@@ -1,0 +1,96 @@
+plugins {
+    id 'java'
+    id 'org.springframework.boot' version '3.5.15'
+    id 'io.spring.dependency-management' version '1.1.7'
+    id 'org.hibernate.orm' version '7.3.12.Final'
+}
+
+group = 'ru.otus.hw'
+version = '0.0.1-SNAPSHOT'
+description = 'WAREHOUSEService'
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(25)
+    }
+}
+
+configurations {
+    compileOnly {
+        extendsFrom annotationProcessor
+    }
+}
+
+repositories {
+    mavenLocal()
+    mavenCentral()
+}
+
+dependencies {
+    implementation project(':COMMONDomain')
+
+    implementation 'org.springframework.boot:spring-boot-starter-web'
+    implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
+    implementation 'org.springframework.boot:spring-boot-starter-actuator'
+    // Хаос-инъекции для сценариев Circuit Breaker; управление через /actuator/chaosmonkey*
+    // (доступ только c JWT роли ADMIN — см. SecurityConfig, цепочка №1).
+    implementation 'de.codecentric:chaos-monkey-spring-boot:3.3.0'
+    implementation 'org.flywaydb:flyway-core'
+    implementation 'org.flywaydb:flyway-database-postgresql'
+    implementation 'org.springframework.boot:spring-boot-starter-validation'
+    implementation 'org.springframework.boot:spring-boot-starter-security'
+    implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:2.8.17'
+    implementation 'io.micrometer:micrometer-tracing-bridge-otel'
+    implementation 'io.opentelemetry:opentelemetry-exporter-otlp'
+    implementation 'net.logstash.logback:logstash-logback-encoder:9.0'
+    implementation 'io.micrometer:micrometer-registry-prometheus'
+
+    implementation 'org.mapstruct:mapstruct:1.6.3'
+    implementation 'org.projectlombok:lombok-mapstruct-binding:0.2.0'
+
+    compileOnly 'org.projectlombok:lombok'
+
+    runtimeOnly 'org.postgresql:postgresql'
+
+    annotationProcessor 'org.projectlombok:lombok'
+    annotationProcessor 'org.springframework.boot:spring-boot-configuration-processor'
+    annotationProcessor 'org.mapstruct:mapstruct-processor:1.6.3'
+
+    testImplementation 'org.springframework.boot:spring-boot-starter-test'
+    testImplementation 'org.springframework.security:spring-security-test'
+    testImplementation 'org.springframework.boot:spring-boot-test'
+
+    testImplementation 'org.testcontainers:testcontainers'
+    testImplementation 'org.testcontainers:postgresql'
+    testImplementation 'org.testcontainers:junit-jupiter'
+
+    testCompileOnly 'org.projectlombok:lombok'
+
+    testRuntimeOnly 'org.junit.jupiter:junit-jupiter-engine'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+
+    testAnnotationProcessor 'org.projectlombok:lombok'
+    testAnnotationProcessor 'org.mapstruct:mapstruct-processor:1.6.3'
+}
+
+tasks.named('test') {
+    useJUnitPlatform()
+}
+
+tasks.named('bootRun') {
+    workingDir = rootProject.projectDir
+}
+
+// The org.hibernate.orm Gradle plugin is used only as a build-time bytecode enhancer
+// (the 6.6.x plugin line is incompatible with Gradle 9). useSameVersion=false prevents
+// the plugin from injecting its own hibernate-core (7.3.x) onto the project classpath -
+// the runtime stays on the Spring Boot BOM managed version.
+hibernate {
+    useSameVersion = false
+    enhancement {
+        enableLazyInitialization = true
+        enableDirtyTracking = true
+        enableAssociationManagement = false
+        enableExtendedEnhancement = false
+    }
+}

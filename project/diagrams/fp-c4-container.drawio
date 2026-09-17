@@ -1,0 +1,473 @@
+<mxfile host="Electron" agent="fp-docs">
+  <diagram id="fp-c4-container" name="C4 Container">
+    <mxGraphModel dx="1178" dy="701" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1800" pageHeight="1520" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="boundary" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#08427B;verticalAlign=top;align=left;fontStyle=1;fontSize=13;spacingTop=8;spacingLeft=12;" value="Minikube-кластер (host arch.finalproject)" vertex="1">
+          <mxGeometry height="1450" width="1470" x="300" y="40" as="geometry" />
+        </mxCell>
+        <mxCell id="fp-boundary" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#08427B;dashed=0;verticalAlign=top;align=left;fontStyle=1;fontSize=13;spacingTop=8;spacingLeft=12;" value="Helm release finalproject · ns otus-msa-fp" vertex="1">
+          <mxGeometry height="920" width="1420" x="330" y="210" as="geometry" />
+        </mxCell>
+        <mxCell id="ingress" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#F5F5F5;strokeColor=#666666;fontColor=#333333;fontSize=10;" value="ingress-nginx - nginx ingress-контроллер [release ingress-nginx · ns ingress-nginx]&lt;br&gt;/api/v1/** (10 путей) · /health/&amp;lt;сервис&amp;gt; → /actuator/health (7 путей)&lt;br&gt;/internal/** (5: account|order|products|delivery|contacts) - только для тестов, X-Internal-API-Key&lt;br&gt;/grafana · /loki - тот же контроллер (релизы monitoring/logging)" vertex="1">
+          <mxGeometry height="100" width="700" x="520" y="80" as="geometry" />
+        </mxCell>
+        <mxCell id="auth" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#438DD5;strokeColor=#3C7FC1;fontColor=#ffffff;fontSize=11;" value="AUTHService (8006)&#xa;[Контейнер: Spring Boot]&#xa;Единственный issuer JWT: register/login/refresh/logout,&#xa;admin API; публикует user.created через outbox" vertex="1">
+          <mxGeometry height="130" width="250" x="370" y="260" as="geometry" />
+        </mxCell>
+        <mxCell id="user" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#438DD5;strokeColor=#3C7FC1;fontColor=#ffffff;fontSize=11;" value="USERService (8000)&#xa;[Контейнер: Spring Boot]&#xa;Проекция идентичности/профиля из user.created;&#xa;публикует user.profile.sync" vertex="1">
+          <mxGeometry height="130" width="250" x="700" y="260" as="geometry" />
+        </mxCell>
+        <mxCell id="billing" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#438DD5;strokeColor=#3C7FC1;fontColor=#ffffff;fontSize=11;" value="BILLINGService (8001)&#xa;[Контейнер: Spring Boot]&#xa;Счета, балансы, депозиты; сага-шаги&#xa;withdraw/refund; публикует account.created&#xa;Chaos Monkey:&#xa;/actuator/chaosmonkey (ADMIN)" vertex="1">
+          <mxGeometry height="130" width="250" x="1030" y="260" as="geometry" />
+        </mxCell>
+        <mxCell id="order" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#438DD5;strokeColor=#3C7FC1;fontColor=#ffffff;fontStyle=1;fontSize=11;" value="ORDERService (8002)&#xa;[Контейнер: Spring Boot]&#xa;Заказы + оркестратор саги,&#xa;Idempotency-Key, notification outbox&#xa;Resilience4j: CB+Retry+RateLimiter&#xa;на сага-клиентах; recovery; outbox" vertex="1">
+          <mxGeometry height="130" width="250" x="1360" y="260" as="geometry" />
+        </mxCell>
+        <mxCell id="warehouse" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#438DD5;strokeColor=#3C7FC1;fontColor=#ffffff;fontSize=11;" value="WAREHOUSEService (8004)&#xa;[Контейнер: Spring Boot]&#xa;Товары, сток, резервы&#xa;(AMQP не использует)&#xa;Chaos Monkey:&#xa;/actuator/chaosmonkey (ADMIN)" vertex="1">
+          <mxGeometry height="130" width="250" x="370" y="680" as="geometry" />
+        </mxCell>
+        <mxCell id="delivery" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#438DD5;strokeColor=#3C7FC1;fontColor=#ffffff;fontSize=11;" value="DELIVERYService (8005)&#xa;[Контейнер: Spring Boot]&#xa;Ёмкости курьеров, слоты, брони;&#xa;read-модель адресов&#xa;Chaos Monkey:&#xa;/actuator/chaosmonkey (ADMIN)" vertex="1">
+          <mxGeometry height="130" width="250" x="700" y="680" as="geometry" />
+        </mxCell>
+        <mxCell id="notification" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#438DD5;strokeColor=#3C7FC1;fontColor=#ffffff;fontSize=11;" value="NOTIFICATIONService (8003)&#xa;[Контейнер: Spring Boot]&#xa;Уведомления: идемпотентный consumer&#xa;(дедупликация по eventId, DLQ), read-модель контактов" vertex="1">
+          <mxGeometry height="130" width="250" x="1030" y="680" as="geometry" />
+        </mxCell>
+        <mxCell id="rabbitmq" parent="1" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=12;fillColor=#85E085;strokeColor=#67AB49;fontColor=#1A1A1A;fontSize=10;" value="fp-rabbitmq&#xa;[RabbitMQ 4.1.3-management]&#xa;4 событийных канала;&#xa;rabbitmq_prometheus :15692" vertex="1">
+          <mxGeometry height="130" width="250" x="1360" y="680" as="geometry" />
+        </mxCell>
+        <mxCell id="pg-auth" parent="1" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=12;fillColor=#85E085;strokeColor=#67AB49;fontColor=#1A1A1A;fontSize=9;" value="fp-postgres-auth&#xa;[PostgreSQL 16]&#xa;БД: fpdb_auth_db" vertex="1">
+          <mxGeometry height="120" width="160" x="370" y="980" as="geometry" />
+        </mxCell>
+        <mxCell id="pg-user" parent="1" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=12;fillColor=#85E085;strokeColor=#67AB49;fontColor=#1A1A1A;fontSize=9;" value="fp-postgres-user&#xa;[PostgreSQL 16]&#xa;БД: fpdb_user_service" vertex="1">
+          <mxGeometry height="120" width="160" x="550" y="980" as="geometry" />
+        </mxCell>
+        <mxCell id="pg-billing" parent="1" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=12;fillColor=#85E085;strokeColor=#67AB49;fontColor=#1A1A1A;fontSize=9;" value="fp-postgres-billing&#xa;[PostgreSQL 16]&#xa;БД: fpdb_billing_service" vertex="1">
+          <mxGeometry height="120" width="160" x="730" y="980" as="geometry" />
+        </mxCell>
+        <mxCell id="pg-order" parent="1" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=12;fillColor=#85E085;strokeColor=#67AB49;fontColor=#1A1A1A;fontSize=9;" value="fp-postgres-order&#xa;[PostgreSQL 16]&#xa;БД: fpdb_order_service" vertex="1">
+          <mxGeometry height="120" width="160" x="910" y="980" as="geometry" />
+        </mxCell>
+        <mxCell id="pg-warehouse" parent="1" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=12;fillColor=#85E085;strokeColor=#67AB49;fontColor=#1A1A1A;fontSize=9;" value="fp-postgres-warehouse&#xa;[PostgreSQL 16]&#xa;БД: fpdb_warehouse_service" vertex="1">
+          <mxGeometry height="120" width="160" x="1090" y="980" as="geometry" />
+        </mxCell>
+        <mxCell id="pg-delivery" parent="1" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=12;fillColor=#85E085;strokeColor=#67AB49;fontColor=#1A1A1A;fontSize=9;" value="fp-postgres-delivery&#xa;[PostgreSQL 16]&#xa;БД: fpdb_delivery_service" vertex="1">
+          <mxGeometry height="120" width="160" x="1270" y="980" as="geometry" />
+        </mxCell>
+        <mxCell id="pg-notification" parent="1" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=12;fillColor=#85E085;strokeColor=#67AB49;fontColor=#1A1A1A;fontSize=9;" value="fp-postgres-notification&#xa;[PostgreSQL 16]&#xa;БД: fpdb_notification_service" vertex="1">
+          <mxGeometry height="120" width="160" x="1450" y="980" as="geometry" />
+        </mxCell>
+        <mxCell id="prometheus" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#F5F5F5;strokeColor=#666666;fontColor=#333333;fontSize=10;" value="Prometheus + Alertmanager&#xa;(monitoring-prometheus)&#xa;[ns otus-msa-monitoring]" vertex="1">
+          <mxGeometry height="100" width="270" x="370" y="1170" as="geometry" />
+        </mxCell>
+        <mxCell id="alloy-loki" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#F5F5F5;strokeColor=#666666;fontColor=#333333;fontSize=10;" value="Alloy (logging-alloy, DaemonSet)&#xa;+ Loki 7.3 (logging-loki)&#xa;[ns otus-msa-logging] · /loki&#xa;парсинг trace_id/span_id из логов" vertex="1">
+          <mxGeometry height="100" width="300" x="720" y="1170" as="geometry" />
+        </mxCell>
+        <mxCell id="tempo" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#F5F5F5;strokeColor=#666666;fontColor=#333333;fontSize=10;" value="Tempo 1.24.4 (tracing-tempo)&#xa;[ns otus-msa-tracing]&#xa;OTLP :4317/:4318" vertex="1">
+          <mxGeometry height="100" width="260" x="1100" y="1170" as="geometry" />
+        </mxCell>
+        <mxCell id="grafana" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#F5F5F5;strokeColor=#666666;fontColor=#333333;fontSize=10;" value="Grafana (monitoring-grafana)&#xa;[ns otus-msa-monitoring] · /grafana&#xa;дашборды «FP Business &amp; Patterns»,&#xa;Spring Boot 3.x, RabbitMQ, Node Exporter&#xa;DS: Prometheus / Loki / Tempo" vertex="1">
+          <mxGeometry height="100" width="300" x="1440" y="1170" as="geometry" />
+        </mxCell>
+        <mxCell id="legend" parent="1" style="shape=note;whiteSpace=wrap;html=1;size=15;fillColor=#FFF2CC;strokeColor=#d6b656;align=left;verticalAlign=top;fontSize=10;spacing=8;" value="&lt;b&gt;Сплошные синие&lt;/b&gt;&amp;nbsp;- синхронный REST: публичный /api/v1/** через ingress; внутри кластера /internal/** - заголовок X-Internal-API-Key, по k8s DNS мимо ingress. Сага - только синхронный REST; клиенты ORDER (Billing/Warehouse/DeliveryServiceClient) под Resilience4j: CircuitBreaker + Retry + RateLimiter.&lt;br&gt;&lt;b&gt;Пунктирные зелёные&lt;/b&gt;&amp;nbsp;- 4 асинхронных канала AMQP: users.events/user.created; user.sync.events/user.profile.sync; accounts.events/account.created; notifications.events/notification.event (через outbox, DLQ); W3C traceparent/tracestate передаются в заголовках сообщений.&lt;br&gt;&lt;b&gt;Сплошные серые&lt;/b&gt;&amp;nbsp;- доступ к своей БД: JPA + Flyway (database-per-service, 7 × PostgreSQL 16).&lt;br&gt;&lt;b&gt;Пунктирные фиолетовые&lt;/b&gt;&amp;nbsp;- observability (cross-ns): Prometheus scrape /actuator/prometheus (7 сервисов) + rabbitmq :15692 + ingress-nginx :10254; трейсы OTLP HTTP → Tempo (все 7 сервисов, sampling 1.0); логи подов → Alloy → Loki (push); Grafana DS: Prometheus/Loki/Tempo (uid fp-prometheus/fp-loki/fp-tempo), derived field trace_id: переходы логи ↔ трейсы.&lt;br&gt;&lt;b&gt;Helm-релизы / namespace&lt;/b&gt;: finalproject → otus-msa-fp; monitoring → otus-msa-monitoring; logging → otus-msa-logging; tracing → otus-msa-tracing; ingress-nginx → ingress-nginx.&lt;br&gt;COMMONDomain - общая библиотека внутри каждого сервиса (не отдельный контейнер)." vertex="1">
+          <mxGeometry height="114" width="1440" x="320" y="1350" as="geometry" />
+        </mxCell>
+        <object placeholders="1" c4Name="Покупатель" c4Type="Person" c4Description="Регистрируется, пополняет счёт, оформляет заказы, получает уведомления" label="&lt;font style=&quot;font-size: 14px&quot;&gt;&lt;b&gt;%c4Name%&lt;/b&gt;&lt;/font&gt;&lt;div&gt;[%c4Type%]&lt;/div&gt;&lt;br&gt;&lt;div&gt;&lt;font style=&quot;font-size: 11px&quot;&gt;%c4Description%&lt;/font&gt;&lt;/div&gt;" id="p-buyer">
+          <mxCell parent="1" style="html=1;fontSize=11;dashed=0;whiteSpace=wrap;fillColor=#08427B;strokeColor=#06315C;fontColor=#ffffff;shape=mxgraph.c4.person2;align=center;metaEdit=1;points=[[0.5,0,0],[1,0.5,0],[1,0.75,0],[0.75,1,0],[0.5,1,0],[0.25,1,0],[0,0.75,0],[0,0.5,0]];resizable=0;" vertex="1">
+            <mxGeometry height="170" width="200" x="60" y="160" as="geometry" />
+          </mxCell>
+        </object>
+        <object placeholders="1" c4Name="Администратор" c4Type="Person" c4Description="Управляет товарами и стоком, ёмкостью курьеров, пользователями и ролями" label="&lt;font style=&quot;font-size: 14px&quot;&gt;&lt;b&gt;%c4Name%&lt;/b&gt;&lt;/font&gt;&lt;div&gt;[%c4Type%]&lt;/div&gt;&lt;br&gt;&lt;div&gt;&lt;font style=&quot;font-size: 11px&quot;&gt;%c4Description%&lt;/font&gt;&lt;/div&gt;" id="p-admin">
+          <mxCell parent="1" style="html=1;fontSize=11;dashed=0;whiteSpace=wrap;fillColor=#08427B;strokeColor=#06315C;fontColor=#ffffff;shape=mxgraph.c4.person2;align=center;metaEdit=1;points=[[0.5,0,0],[1,0.5,0],[1,0.75,0],[0.75,1,0],[0.5,1,0],[0.25,1,0],[0,0.75,0],[0,0.5,0]];resizable=0;" vertex="1">
+            <mxGeometry height="170" width="200" x="60" y="390" as="geometry" />
+          </mxCell>
+        </object>
+        <object placeholders="1" c4Name="E2E-тесты (Newman)" c4Type="Person" c4Description="Прогоны postman-сценариев: сага, идемпотентность, синхронизация профиля" label="&lt;font style=&quot;font-size: 14px&quot;&gt;&lt;b&gt;%c4Name%&lt;/b&gt;&lt;/font&gt;&lt;div&gt;[%c4Type%]&lt;/div&gt;&lt;br&gt;&lt;div&gt;&lt;font style=&quot;font-size: 11px&quot;&gt;%c4Description%&lt;/font&gt;&lt;/div&gt;" id="p-e2e">
+          <mxCell parent="1" style="html=1;fontSize=11;dashed=0;whiteSpace=wrap;fillColor=#08427B;strokeColor=#06315C;fontColor=#ffffff;shape=mxgraph.c4.person2;align=center;metaEdit=1;points=[[0.5,0,0],[1,0.5,0],[1,0.75,0],[0.75,1,0],[0.5,1,0],[0.25,1,0],[0,0.75,0],[0,0.5,0]];resizable=0;" vertex="1">
+            <mxGeometry height="170" width="200" x="60" y="620" as="geometry" />
+          </mxCell>
+        </object>
+        <mxCell id="e-buyer-ing" edge="1" parent="1" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=1;strokeColor=#438DD5;strokeWidth=2;fontSize=9;labelBackgroundColor=#FFFFFF;endArrow=block;endFill=1;" value="HTTP/JSON /api/v1/** (JWT Bearer)">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="92.5" as="offset" />
+            <Array as="points">
+              <mxPoint x="285" y="245" />
+              <mxPoint x="285" y="100" />
+            </Array>
+            <mxPoint x="260" y="245" as="sourcePoint" />
+            <mxPoint x="520" y="100" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e-admin-ing" edge="1" parent="1" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=1;strokeColor=#438DD5;strokeWidth=2;fontSize=9;labelBackgroundColor=#FFFFFF;endArrow=block;endFill=1;" value="HTTP/JSON /api/v1/** (JWT Bearer)">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="115" y="-82.5" as="offset" />
+            <Array as="points">
+              <mxPoint x="295" y="475" />
+              <mxPoint x="295" y="120" />
+            </Array>
+            <mxPoint x="260" y="475" as="sourcePoint" />
+            <mxPoint x="520" y="120" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e-e2e-ing1" edge="1" parent="1" source="p-e2e" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=1;strokeColor=#438DD5;strokeWidth=2;fontSize=9;labelBackgroundColor=#FFFFFF;endArrow=block;endFill=1;exitX=0.988;exitY=0.467;exitDx=0;exitDy=0;exitPerimeter=0;" value="HTTP/JSON /api/v1/** (JWT Bearer)">
+          <mxGeometry relative="1" x="0.7325" as="geometry">
+            <mxPoint as="offset" />
+            <Array as="points">
+              <mxPoint x="260" y="699.4" />
+              <mxPoint x="310" y="700" />
+              <mxPoint x="310" y="140" />
+            </Array>
+            <mxPoint x="260" y="700" as="sourcePoint" />
+            <mxPoint x="520" y="140" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e-e2e-ing2" edge="1" parent="1" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=1;strokeColor=#438DD5;strokeWidth=2;dashed=1;fontSize=9;labelBackgroundColor=#FFFFFF;endArrow=block;endFill=1;" value="/internal/** · X-Internal-API-Key&#xa;(5 маршрутов, для прогонов)">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="95" y="-212" as="offset" />
+            <Array as="points">
+              <mxPoint x="315" y="740" />
+              <mxPoint x="315" y="166" />
+            </Array>
+            <mxPoint x="260" y="740" as="sourcePoint" />
+            <mxPoint x="520" y="166" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e-ing-auth" edge="1" parent="1" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=1;strokeColor=#438DD5;strokeWidth=1.5;fontSize=9;labelBackgroundColor=#FFFFFF;endArrow=block;endFill=1;" value="/api/v1/auth|user|roles">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="560" y="246" />
+              <mxPoint x="495" y="246" />
+            </Array>
+            <mxPoint x="560" y="180" as="sourcePoint" />
+            <mxPoint x="495" y="260" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e-ing-user" edge="1" parent="1" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=1;strokeColor=#438DD5;strokeWidth=1.5;fontSize=9;labelBackgroundColor=#FFFFFF;endArrow=block;endFill=1;" value="/api/v1/profile">
+          <mxGeometry relative="1" y="-35" as="geometry">
+            <mxPoint as="offset" />
+            <mxPoint x="825" y="180" as="sourcePoint" />
+            <mxPoint x="825" y="260" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e-ing-billing" edge="1" parent="1" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=1;strokeColor=#438DD5;strokeWidth=1.5;fontSize=9;labelBackgroundColor=#FFFFFF;endArrow=block;endFill=1;" value="/api/v1/account">
+          <mxGeometry relative="1" y="-45" as="geometry">
+            <mxPoint as="offset" />
+            <mxPoint x="1155" y="180" as="sourcePoint" />
+            <mxPoint x="1155" y="260" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e-ing-order" edge="1" parent="1" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=1;strokeColor=#438DD5;strokeWidth=1.5;fontSize=9;labelBackgroundColor=#FFFFFF;endArrow=block;endFill=1;" value="/api/v1/order">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="80" as="offset" />
+            <Array as="points">
+              <mxPoint x="1180" y="232" />
+              <mxPoint x="1485" y="232" />
+            </Array>
+            <mxPoint x="1180" y="180" as="sourcePoint" />
+            <mxPoint x="1485" y="260" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e-ing-warehouse" edge="1" parent="1" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=1;strokeColor=#438DD5;strokeWidth=1.5;fontSize=9;labelBackgroundColor=#FFFFFF;endArrow=block;endFill=1;" value="/api/v1/products|stocks">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="92" y="-178" as="offset" />
+            <Array as="points">
+              <mxPoint x="540" y="200" />
+              <mxPoint x="348" y="200" />
+              <mxPoint x="348" y="745" />
+            </Array>
+            <mxPoint x="540" y="180" as="sourcePoint" />
+            <mxPoint x="370" y="745" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e-ing-delivery" edge="1" parent="1" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=1;strokeColor=#438DD5;strokeWidth=1.5;fontSize=9;labelBackgroundColor=#FFFFFF;endArrow=block;endFill=1;" value="/api/v1/delivery">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="-47" y="172" as="offset" />
+            <Array as="points">
+              <mxPoint x="975" y="650" />
+              <mxPoint x="880" y="650" />
+            </Array>
+            <mxPoint x="975" y="180" as="sourcePoint" />
+            <mxPoint x="880" y="680" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e-ing-notification" edge="1" parent="1" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=1;strokeColor=#438DD5;strokeWidth=1.5;fontSize=9;labelBackgroundColor=#FFFFFF;endArrow=block;endFill=1;" value="/api/v1/notification">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="90" y="118" as="offset" />
+            <Array as="points">
+              <mxPoint x="1000" y="648" />
+              <mxPoint x="1200" y="648" />
+            </Array>
+            <mxPoint x="1000" y="180" as="sourcePoint" />
+            <mxPoint x="1200" y="680" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e-order-billing" edge="1" parent="1" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=1;strokeColor=#438DD5;strokeWidth=2;fontSize=9;labelBackgroundColor=#FFFFFF;endArrow=block;endFill=1;" value="Saga /internal/order/* · X-Internal-API-Key">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="32" as="offset" />
+            <Array as="points">
+              <mxPoint x="1440" y="404" />
+              <mxPoint x="1305" y="404" />
+              <mxPoint x="1305" y="350" />
+            </Array>
+            <mxPoint x="1440" y="390" as="sourcePoint" />
+            <mxPoint x="1280" y="350" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e-user-billing" edge="1" parent="1" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=1;strokeColor=#438DD5;strokeWidth=2;fontSize=9;labelBackgroundColor=#FFFFFF;endArrow=block;endFill=1;" value="POST /internal/account + проба активации&#xa;(X-Internal-API-Key · k8s DNS)">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="900" y="432" />
+              <mxPoint x="1120" y="432" />
+            </Array>
+            <mxPoint x="900" y="390" as="sourcePoint" />
+            <mxPoint x="1120" y="390" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e-order-warehouse" edge="1" parent="1" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=1;strokeColor=#438DD5;strokeWidth=2;fontSize=9;labelBackgroundColor=#FFFFFF;endArrow=block;endFill=1;" value="Saga /internal/products/reservations&#xa;reserve|confirm|cancel · X-Internal-API-Key">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="75" as="offset" />
+            <Array as="points">
+              <mxPoint x="1500" y="460" />
+              <mxPoint x="560" y="460" />
+            </Array>
+            <mxPoint x="1500" y="390" as="sourcePoint" />
+            <mxPoint x="560" y="680" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e-order-delivery" edge="1" parent="1" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=1;strokeColor=#438DD5;strokeWidth=2;fontSize=9;labelBackgroundColor=#FFFFFF;endArrow=block;endFill=1;" value="Saga /internal/delivery/reservations&#xa;reserve|confirm|cancel · X-Internal-API-Key">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="62" as="offset" />
+            <Array as="points">
+              <mxPoint x="1550" y="488" />
+              <mxPoint x="880" y="488" />
+            </Array>
+            <mxPoint x="1550" y="390" as="sourcePoint" />
+            <mxPoint x="880" y="680" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e-auth-rmq" edge="1" parent="1" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=1;strokeColor=#82b366;strokeWidth=2;dashed=1;fontSize=9;labelBackgroundColor=#FFFFFF;endArrow=block;endFill=1;" value="users.events / user.created (через outbox)">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="-19" as="offset" />
+            <Array as="points">
+              <mxPoint x="540" y="516" />
+              <mxPoint x="1490" y="516" />
+            </Array>
+            <mxPoint x="540" y="390" as="sourcePoint" />
+            <mxPoint x="1490" y="680" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e-user-rmq" edge="1" parent="1" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=1;strokeColor=#82b366;strokeWidth=2;dashed=1;fontSize=9;labelBackgroundColor=#FFFFFF;endArrow=block;endFill=1;" value="user.sync.events / user.profile.sync (через outbox)">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="9" as="offset" />
+            <Array as="points">
+              <mxPoint x="860" y="544" />
+              <mxPoint x="1520" y="544" />
+            </Array>
+            <mxPoint x="860" y="390" as="sourcePoint" />
+            <mxPoint x="1520" y="680" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e-billing-rmq" edge="1" parent="1" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=1;strokeColor=#82b366;strokeWidth=2;dashed=1;fontSize=9;labelBackgroundColor=#FFFFFF;endArrow=block;endFill=1;" value="accounts.events / account.created">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="37" as="offset" />
+            <Array as="points">
+              <mxPoint x="1200" y="572" />
+              <mxPoint x="1550" y="572" />
+            </Array>
+            <mxPoint x="1200" y="390" as="sourcePoint" />
+            <mxPoint x="1550" y="680" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e-order-rmq" edge="1" parent="1" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=1;strokeColor=#82b366;strokeWidth=2;dashed=1;fontSize=9;labelBackgroundColor=#FFFFFF;endArrow=block;endFill=1;" value="notifications.events /&#xa;notification.event (через outbox, DLQ)">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="65" as="offset" />
+            <Array as="points">
+              <mxPoint x="1400" y="600" />
+              <mxPoint x="1580" y="600" />
+            </Array>
+            <mxPoint x="1400" y="390" as="sourcePoint" />
+            <mxPoint x="1580" y="680" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e-rmq-user" edge="1" parent="1" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=1;strokeColor=#82b366;strokeWidth=2;dashed=1;fontSize=9;labelBackgroundColor=#FFFFFF;endArrow=block;endFill=1;" value="user.user-created.queue +&#xa;user.account-activation.queue">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="93" as="offset" />
+            <Array as="points">
+              <mxPoint x="1380" y="628" />
+              <mxPoint x="760" y="628" />
+            </Array>
+            <mxPoint x="1380" y="680" as="sourcePoint" />
+            <mxPoint x="760" y="390" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e-rmq-billing" edge="1" parent="1" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=1;strokeColor=#82b366;strokeWidth=2;dashed=1;fontSize=9;labelBackgroundColor=#FFFFFF;endArrow=block;endFill=1;" value="billing.account-create.queue">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="121" as="offset" />
+            <Array as="points">
+              <mxPoint x="1410" y="656" />
+              <mxPoint x="1150" y="656" />
+            </Array>
+            <mxPoint x="1410" y="680" as="sourcePoint" />
+            <mxPoint x="1150" y="390" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e-rmq-notification" edge="1" parent="1" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=1;strokeColor=#82b366;strokeWidth=2;dashed=1;fontSize=9;labelBackgroundColor=#FFFFFF;endArrow=block;endFill=1;" value="notification.profile-sync.queue&#xa;+ notification.queue (DLQ)">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1390" y="966" />
+              <mxPoint x="1100" y="966" />
+            </Array>
+            <mxPoint x="1390" y="810" as="sourcePoint" />
+            <mxPoint x="1100" y="810" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e-rmq-delivery" edge="1" parent="1" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=1;strokeColor=#82b366;strokeWidth=2;dashed=1;fontSize=9;labelBackgroundColor=#FFFFFF;endArrow=block;endFill=1;" value="delivery.profile-sync.queue">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="-85" as="offset" />
+            <Array as="points">
+              <mxPoint x="1440" y="944" />
+              <mxPoint x="880" y="944" />
+            </Array>
+            <mxPoint x="1440" y="810" as="sourcePoint" />
+            <mxPoint x="880" y="810" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e-auth-pg" edge="1" parent="1" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=1;strokeColor=#999999;strokeWidth=1;fontSize=8;labelBackgroundColor=#FFFFFF;endArrow=block;endFill=1;" value="JPA + Flyway">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="200" y="27" as="offset" />
+            <Array as="points">
+              <mxPoint x="390" y="665" />
+              <mxPoint x="360" y="665" />
+              <mxPoint x="360" y="832" />
+              <mxPoint x="630" y="832" />
+            </Array>
+            <mxPoint x="390" y="390" as="sourcePoint" />
+            <mxPoint x="630" y="980" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e-user-pg" edge="1" parent="1" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=1;strokeColor=#999999;strokeWidth=1;fontSize=8;labelBackgroundColor=#FFFFFF;endArrow=block;endFill=1;" value="JPA + Flyway">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="13" y="190" as="offset" />
+            <Array as="points">
+              <mxPoint x="930" y="668" />
+              <mxPoint x="990" y="668" />
+            </Array>
+            <mxPoint x="930" y="390" as="sourcePoint" />
+            <mxPoint x="990" y="980" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e-billing-pg" edge="1" parent="1" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=1;strokeColor=#999999;strokeWidth=1;fontSize=8;labelBackgroundColor=#FFFFFF;endArrow=block;endFill=1;" value="JPA + Flyway">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="10" y="260" as="offset" />
+            <Array as="points">
+              <mxPoint x="1260" y="668" />
+              <mxPoint x="1320" y="668" />
+              <mxPoint x="1320" y="898" />
+              <mxPoint x="1350" y="898" />
+            </Array>
+            <mxPoint x="1260" y="390" as="sourcePoint" />
+            <mxPoint x="1350" y="980" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e-order-pg" edge="1" parent="1" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=1;strokeColor=#999999;strokeWidth=1;fontSize=8;labelBackgroundColor=#FFFFFF;endArrow=block;endFill=1;" value="JPA + Flyway">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="-65" y="243" as="offset" />
+            <Array as="points">
+              <mxPoint x="1590" y="660" />
+              <mxPoint x="1660" y="660" />
+              <mxPoint x="1660" y="958" />
+              <mxPoint x="1530" y="958" />
+            </Array>
+            <mxPoint x="1590" y="390" as="sourcePoint" />
+            <mxPoint x="1530" y="980" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e-warehouse-pg" edge="1" parent="1" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=1;strokeColor=#999999;strokeWidth=1;fontSize=8;labelBackgroundColor=#FFFFFF;endArrow=block;endFill=1;" value="JPA + Flyway">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint y="68" as="offset" />
+            <Array as="points">
+              <mxPoint x="495" y="854" />
+              <mxPoint x="450" y="854" />
+            </Array>
+            <mxPoint x="495" y="810" as="sourcePoint" />
+            <mxPoint x="450" y="980" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e-delivery-pg" edge="1" parent="1" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=1;strokeColor=#999999;strokeWidth=1;fontSize=8;labelBackgroundColor=#FFFFFF;endArrow=block;endFill=1;" value="JPA + Flyway">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint y="52" as="offset" />
+            <Array as="points">
+              <mxPoint x="825" y="876" />
+              <mxPoint x="810" y="876" />
+            </Array>
+            <mxPoint x="825" y="810" as="sourcePoint" />
+            <mxPoint x="810" y="980" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e-notification-pg" edge="1" parent="1" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=1;strokeColor=#999999;strokeWidth=1;fontSize=8;labelBackgroundColor=#FFFFFF;endArrow=block;endFill=1;" value="JPA + Flyway">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="15" y="28" as="offset" />
+            <Array as="points">
+              <mxPoint x="1155" y="920" />
+              <mxPoint x="1170" y="920" />
+            </Array>
+            <mxPoint x="1155" y="810" as="sourcePoint" />
+            <mxPoint x="1170" y="980" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e-prom-scrape" edge="1" parent="1" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=1;strokeColor=#9673A6;strokeWidth=1.5;dashed=1;fontSize=9;labelBackgroundColor=#FFFFFF;endArrow=block;endFill=1;" value="scrape /actuator/prometheus (7 сервисов)&#xa;+ rabbitmq :15692 + ingress-nginx :10254">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="505" y="1170" as="sourcePoint" />
+            <mxPoint x="505" y="1130" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e-pods-alloy" edge="1" parent="1" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=1;strokeColor=#9673A6;strokeWidth=1.5;dashed=1;fontSize=9;labelBackgroundColor=#FFFFFF;endArrow=block;endFill=1;" value="логи подов кластера&#xa;push /loki/api/v1/push">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="870" y="1130" as="sourcePoint" />
+            <mxPoint x="870" y="1170" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e-svc-tempo" edge="1" parent="1" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=1;strokeColor=#9673A6;strokeWidth=1.5;dashed=1;fontSize=9;labelBackgroundColor=#FFFFFF;endArrow=block;endFill=1;" value="OTLP HTTP трейсы · sampling 1.0&#xa;(все 7 сервисов, W3C traceparent)">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="1230" y="1130" as="sourcePoint" />
+            <mxPoint x="1230" y="1170" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e-graf-prom" edge="1" parent="1" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=1;strokeColor=#9673A6;strokeWidth=1.5;dashed=1;fontSize=9;labelBackgroundColor=#FFFFFF;endArrow=block;endFill=1;" value="DS Prometheus (uid fp-prometheus)">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="-148" as="offset" />
+            <Array as="points">
+              <mxPoint x="1590" y="1290" />
+              <mxPoint x="505" y="1290" />
+            </Array>
+            <mxPoint x="1590" y="1270" as="sourcePoint" />
+            <mxPoint x="505" y="1270" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e-graf-loki" edge="1" parent="1" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=1;strokeColor=#9673A6;strokeWidth=1.5;dashed=1;fontSize=9;labelBackgroundColor=#FFFFFF;endArrow=block;endFill=1;" value="DS Loki (uid fp-loki) · derived field&#xa;trace_id: переходы логи → трейсы">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="-95" as="offset" />
+            <Array as="points">
+              <mxPoint x="1620" y="1306" />
+              <mxPoint x="870" y="1306" />
+            </Array>
+            <mxPoint x="1620" y="1270" as="sourcePoint" />
+            <mxPoint x="870" y="1270" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e-graf-tempo" edge="1" parent="1" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=1;strokeColor=#9673A6;strokeWidth=1.5;dashed=1;fontSize=9;labelBackgroundColor=#FFFFFF;endArrow=block;endFill=1;" value="DS Tempo (uid fp-tempo)">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="5" as="offset" />
+            <Array as="points">
+              <mxPoint x="1560" y="1322" />
+              <mxPoint x="1230" y="1322" />
+            </Array>
+            <mxPoint x="1560" y="1270" as="sourcePoint" />
+            <mxPoint x="1230" y="1270" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

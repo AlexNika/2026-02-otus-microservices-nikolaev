@@ -8,9 +8,6 @@
     '.\postman\k8s\otus-fp-cancel-conflict-k8s.postman_collection.json',
     '.\postman\k8s\otus-fp-idempotency-k8s.postman_collection.json',
     '.\postman\k8s\otus-fp-user-sync-k8s.postman_collection.json'
-    # Circuit Breaker в k8s: прогон ОТЛОЖЕН — ингресс не публикует /actuator,
-    # хаос-эндпоинты требуют port-forward (chaosBillingUrl/chaosWarehouseUrl/chaosDeliveryUrl).
-    # '.\postman\k8s\otus-fp-circuit-breaker-k8s.postman_collection.json'
   ),
   [string]$Environment = '.\postman\k8s\k8s.postman_environment.json',
   [string]$InternalApiKey = '',

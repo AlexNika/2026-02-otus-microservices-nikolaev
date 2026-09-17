@@ -1,0 +1,98 @@
+# Saga ORDER → BILLING → WAREHOUSE → DELIVERY — блок-схема с ветвлением и компенсациями
+
+> Сгенерировано 2026-09-10 15:58 UTC скриптом `scripts/08-gen-saga-diagrams.ps1` (генератор `scripts/gen-saga-diagrams.mjs`). Не редактировать вручную — перегенерировать.
+- Источник: `reports/k8s/newman-json-otus-fp-success-k8s-20260910-173713.json` — 21 запрос, 41 assertions (0 failed), длительность 17.9s, старт 2026-09-10T14:37:16.091Z
+- Источник: `reports/k8s/newman-json-otus-fp-failed-billing-k8s-20260910-173713.json` — 19 запросов, 36 assertions (0 failed), длительность 15.1s, старт 2026-09-10T14:37:36.862Z
+
+```mermaid
+flowchart TD
+    classDef ok fill:#C8E6C9,stroke:#2E7D32,color:#1B5E20
+    classDef bad fill:#FFCDD2,stroke:#C62828,color:#B71C1C
+    classDef neutral fill:#E3F2FD,stroke:#1565C0,color:#0D47A1
+    classDef comp fill:#FFF3CD,stroke:#B8860B,color:#5D4037
+
+    subgraph CLIENT["Newman (Client) — прогон коллекций"]
+        A["12 · POST /api/v1/order<br/>product #13 · qty=1 · 10.00 ₽"]:::neutral
+        V1["Проверки success 13–18: PLACED · CONFIRMED ×2 ·<br/>balance 90.00 ₽ · stocks available=19/reserved=0 · SUCCESS уведомление #27"]:::ok
+        V2["Проверки failed 12–16: order FAILED · брони 404 ×2 ·<br/>balance 0.00 ₽ · FAILED уведомление #30"]:::bad
+    end
+
+    subgraph ORDER["ORDERService — оркестратор saga (OrderServiceImpl.runSaga)"]
+        S0["order PENDING → PROCESSING<br/>saga_state STARTED"]:::neutral
+        ST1{"Шаг 1 · BILLING_WITHDRAW<br/>POST /internal/order/withdraw — результат?"}
+        SUC["order #9 → PLACED · saga CONFIRMED<br/>201 Created (509ms)"]:::ok
+        CAT["catch → compensate() · saga COMPENSATING"]:::comp
+        FAIL["order #10 → FAILED · saga COMPENSATED<br/>BillingServiceException → 502 Bad Gateway (139ms)"]:::bad
+        RCV["SagaRecoveryService @Scheduled 60s —<br/>докатка незавершённых saga по saga_state"]:::neutral
+    end
+
+    subgraph BILLING["BILLINGService"]
+        BOK["200 · списано 10.00 ₽:<br/>100.00 → 90.00 ₽ (success-прогон)"]:::ok
+        B409["409 · BILLING_INSUFFICIENT_FUNDS<br/>balance 0.00 ₽, требуется 10.00 ₽ (failed-прогон)"]:::bad
+        BRF["POST /internal/order/refund<br/>(компенсация BILLING_REFUND)"]:::comp
+    end
+
+    subgraph WAREHOUSE["WAREHOUSEService"]
+        W1["POST /internal/products/reservations → RESERVED<br/>confirm → CONFIRMED · stocks: available=19 reserved=0"]:::ok
+        W404["броней нет → GET reservations = 404<br/>(шаг 2 не выполнялся)"]:::bad
+        WC["POST /internal/products/reservations/id/cancel<br/>(компенсация WAREHOUSE_CANCEL)"]:::comp
+    end
+
+    subgraph DELIVERY["DELIVERYService"]
+        D1["POST /internal/delivery/reservations → RESERVED<br/>confirm → CONFIRMED · 2026-09-19 12:00–14:00"]:::ok
+        D404["брони нет → GET reservation = 404<br/>(шаг 3 не выполнялся)"]:::bad
+        DC["POST /internal/delivery/reservations/id/cancel<br/>(компенсация DELIVERY_CANCEL)"]:::comp
+    end
+
+    subgraph NOTIF["NOTIFICATIONService — асинхронно через RabbitMQ"]
+        N1["outbox → OutboxPublisher → RabbitMQ →<br/>notification.queue: SUCCESS #27"]:::ok
+        N2["outbox → OutboxPublisher → RabbitMQ →<br/>notification.queue: FAILED #30"]:::bad
+    end
+
+    A --> S0
+    S0 --> ST1
+    ST1 -->|"success-прогон: 200 OK · деньги списаны"| BOK
+    BOK --> W1
+    W1 --> D1
+    D1 -->|"оба confirm OK"| SUC
+    SUC -->|"outbox: SUCCESS-событие"| N1
+    N1 --> V1
+    ST1 -->|"failed-прогон: 409 BILLING_INSUFFICIENT_FUNDS"| B409
+    B409 --> CAT
+
+    subgraph COMP["compensate() — откат в обратном порядке (только выполненные шаги)"]
+        direction TB
+        C1["1. DELIVERY_CANCEL — ПРОПУЩЕН<br/>deliveryReserved=false → 404 при проверке"]:::comp
+        C2["2. WAREHOUSE_CANCEL — ПРОПУЩЕН<br/>warehouseReserved=false → 404 при проверке"]:::comp
+        C3["3. BILLING_REFUND — ПРОПУЩЕН<br/>billingReserved=false → balance 0.00 ₽ без изменений"]:::comp
+        C1 --> C2 --> C3
+    end
+
+    CAT --> COMP
+    COMP --> FAIL
+    FAIL -->|"outbox: FAILED-событие"| N2
+    N2 --> V2
+    B409 -.->|"до шагов 2–3 дело не дошло"| W404
+    B409 -.->|"до шагов 2–3 дело не дошло"| D404
+    W404 -.-> V2
+    D404 -.-> V2
+    SUC -.-> RCV
+    FAIL -.-> RCV
+
+    %% При сбое на ДРУГОМ шаге (см. коллекции failed-warehouse/failed-delivery) compensate()
+    %% реально вызывает DC/WC/BRF в показанном порядке — узлы компенсаций уже на схеме.
+```
+
+## Легенда
+
+- `->> / -->>` — синхронный REST-вызов (сплошная/пунктирная стрелка с наконечником).
+- `--) / --x` — асинхронная доставка RabbitMQ (`--)`), сбой/ошибка (`--x`, `-x`).
+- Внутренние вызовы ORDER → BILLING/WAREHOUSE/DELIVERY (`/internal/**`) производные из кода
+  `OrderServiceImpl.runSaga/compensate` — newman их не видит; коллекции проверяют результат.
+- Уведомления: transactional outbox → scheduled `OutboxPublisher` → RabbitMQ → `NOTIFICATIONService.NotificationConsumer`.
+- ✅ / ❌ — статус assertions newman по факту прогона, `(Nms)` — фактическое время ответа.
+
+Зелёный путь — success-прогон (`otus-fp-success-k8s`), красный — failed-billing (`otus-fp-failed-billing-k8s`).
+Жёлтые узлы — логика компенсаций `compensate()` (обратный порядок DELIVERY → WAREHOUSE → BILLING,
+выполняются только реально пройденные шаги). В billing-сценарии все три пропускаются: сбой на первом шаге.
+

@@ -11,8 +11,10 @@ import ru.otus.hw.dto.NotificationEvent;
 import ru.otus.hw.models.OutboxEvent;
 import ru.otus.hw.repository.OutboxEventRepository;
 import ru.otus.hw.service.OutboxPublisher;
+import ru.otus.hw.tracing.W3CTraceContextAdapter;
 
 import java.time.LocalDateTime;
+import java.util.Map;
 
 /**
  * Транзакционный outbox-аппендер канала уведомлений.
@@ -33,6 +35,8 @@ public class NotificationEventPublisher {
 
     private final ObjectMapper objectMapper;
 
+    private final W3CTraceContextAdapter traceContextAdapter;
+
     /**
      * Сохраняет событие в outbox (в транзакции вызывающего кода).
      */
@@ -43,9 +47,12 @@ public class NotificationEventPublisher {
             return;
         }
         try {
+            Map<String, String> traceHeaders = traceContextAdapter.captureCurrent();
             OutboxEvent outboxEvent = OutboxEvent.builder()
                     .eventId(event.eventId())
                     .payload(objectMapper.writeValueAsString(event))
+                    .traceparent(traceHeaders.get("traceparent"))
+                    .tracestate(traceHeaders.get("tracestate"))
                     .status(OutboxEvent.OutboxStatus.NEW)
                     .attempts(0)
                     .createdAt(LocalDateTime.now())

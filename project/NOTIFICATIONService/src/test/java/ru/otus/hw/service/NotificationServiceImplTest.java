@@ -43,6 +43,9 @@ class NotificationServiceImplTest {
     @Mock
     private NotificationMapper notificationMapper;
 
+    @Mock
+    private ru.otus.hw.metrics.ConsumerMetrics consumerMetrics;
+
     @InjectMocks
     private NotificationServiceImpl notificationService;
 

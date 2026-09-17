@@ -22,11 +22,21 @@ spring:
     password: ${RABBIT_PASSWORD:guest}
     publisher-confirm-type: correlated
     publisher-returns: true
+  http:
+    client:
+      connect-timeout: ${HTTP_CLIENT_CONNECT_TIMEOUT:2s}
+      read-timeout: ${HTTP_CLIENT_READ_TIMEOUT:3s}
 
 server:
   port: ${SERVER_PORT_USER_SERVICE:8000}
 
 management:
+  otlp:
+    tracing:
+      endpoint: ${MANAGEMENT_OTLP_TRACING_ENDPOINT:http://localhost:4318/v1/traces}
+  tracing:
+    sampling:
+      probability: ${MANAGEMENT_TRACING_SAMPLING_PROBABILITY:1.0}
   endpoint:
     health:
       probes:
@@ -50,27 +60,30 @@ management:
         enabled: true
 
 logging:
-  file:
-    name: ./logs/user-service.log
   config: classpath:logback-spring.xml
   level:
     root: INFO
     ru.otus.hw: DEBUG
-    org.springframework.security: DEBUG
-    ru.otus.hw.config.SecurityConfig: TRACE
 
 app:
-  simulation-errors-bypass-enabled: true
+  auth-service-url: ${AUTH_SERVICE_URL:http://localhost:8006}
+  billing-service-url: ${BILLING_SERVICE_URL:http://localhost:8001}
   security:
     jwt-secret-key: ${JWT_SECRET_KEY:}
-    jwt-expiration-time: ${JWT_EXPIRATION_TIME:86400000}
-    bcrypt-iterations: ${BCRYPT_STRENGTH:12}
-  billing-service-url: ${BILLING_SERVICE_URL:http://localhost:8001}
+    jwt-access-expiration-time: ${JWT_ACCESS_EXPIRATION:900000}
   internal-api-key: ${INTERNAL_API_KEY}
   rabbitmq:
     producer:
       exchange-name: users.events
       routing-key: user.created
+    user-created:
+      exchange-name: users.events
+      queue-name: user.user-created.queue
+      queue-type: classic
+      routing-key: user.created
+    user-sync:
+      exchange-name: user.sync.events
+      routing-key: user.profile.sync
     notification:
       exchange-name: notifications.events
       routing-key: notification.event
@@ -81,6 +94,8 @@ app:
       routing-key: account.created
   outbox:
     publish-delay: ${OUTBOX_PUBLISH_DELAY:1000}
+    cleanup-interval: ${OUTBOX_CLEANUP_INTERVAL:1h}
+    retention: ${OUTBOX_RETENTION:7d}
   activation:
     timeout: ${BILLING_ACTIVATION_TIMEOUT:30m}
     check-interval-ms: ${ACTIVATION_CHECK_INTERVAL:300000}

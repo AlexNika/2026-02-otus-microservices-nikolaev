@@ -2,17 +2,23 @@ package ru.otus.hw.dto;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import io.swagger.v3.oas.annotations.media.Schema;
+import jakarta.validation.Valid;
 import jakarta.validation.constraints.Past;
+import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 
 import java.time.LocalDateTime;
+import java.util.List;
 
 /**
- * DTO for updating {@link ru.otus.hw.models.UserProfile}
- * All fields are optional - only provided fields will be updated
+ * DTO частичного обновления {@link ru.otus.hw.models.UserProfile} (PATCH).
+ * All fields are optional - only provided fields will be updated.
+ * <p>Семантика коллекции {@code addresses}: {@code null} - не трогать; пустой список -
+ * удалить все адреса; иначе полная замена снимка (по {@code addressId} каждого элемента).
  */
 @JsonIgnoreProperties(ignoreUnknown = true)
-@Schema(description = "DTO for updating a user profile. All fields are optional.")
+@Schema(description = "DTO for partial update of a user profile (PATCH). "
+        + "Only provided fields are updated, null keeps the current value.")
 public record UserProfileUpdateDto(
         @Schema(description = "User's username (display name)", example = "johndoe",
                 requiredMode = Schema.RequiredMode.NOT_REQUIRED)
@@ -32,6 +38,17 @@ public record UserProfileUpdateDto(
         @Schema(description = "User's birthdate", example = "1990-01-15T00:00:00",
                 requiredMode = Schema.RequiredMode.NOT_REQUIRED)
         @Past(message = "Birthdate must be in the past")
-        LocalDateTime birthdate
+        LocalDateTime birthdate,
+
+        @Schema(description = "User's phone number (unique); null keeps the current value",
+                example = "+79991234567", requiredMode = Schema.RequiredMode.NOT_REQUIRED)
+        @Pattern(regexp = "^\\+?[0-9]{10,15}$",
+                message = "Phone must contain 10-15 digits, optionally prefixed with +")
+        String phone,
+
+        @Schema(description = "Delivery addresses full snapshot; null keeps current addresses, "
+                + "empty list removes all", requiredMode = Schema.RequiredMode.NOT_REQUIRED)
+        @Valid
+        List<UserAddressRequestDto> addresses
 ) {
 }

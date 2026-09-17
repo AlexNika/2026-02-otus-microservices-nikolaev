@@ -1,5 +1,6 @@
 package ru.otus.hw.repository;
 
+import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -37,10 +38,9 @@ public interface TransactionRepository extends JpaRepository<Transaction, Long> 
             """)
     List<Transaction> findLatestTransactions(@Param("accountId") Long accountId, int limit);
 
-    @Query("SELECT t FROM Transaction t WHERE t.id = :id")
-    Optional<Transaction> findByIdWithGraph(@Param("id") Long id);
-
+    @EntityGraph("Transaction.with-account")
     Optional<Transaction> findByOrderIdAndTransactionType(Long orderId, Transaction.TransactionType transactionType);
 
+    @EntityGraph("Transaction.with-account")
     Optional<Transaction> findByIdempotencyKey(String idempotencyKey);
 }

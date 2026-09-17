@@ -11,7 +11,7 @@ import org.springframework.context.annotation.Configuration;
 @Setter
 @Configuration
 @ConfigurationProperties(prefix = "app")
-public class AppProperties implements SimulationConfig, InternalApiKeyConfig {
+public class AppProperties implements SimulationConfig, InternalApiKeyConfig, AuthServiceUrlConfig {
 
     @Getter(onMethod = @__(@Override))
     private boolean isSimulationErrorsBypassEnabled;
@@ -19,9 +19,13 @@ public class AppProperties implements SimulationConfig, InternalApiKeyConfig {
     @Getter(onMethod = @__(@Override))
     private String internalApiKey;
 
+    @Getter(onMethod = @__(@Override))
+    private String authServiceUrl;
+
     @PostConstruct
     public void logProperties() {
         log.debug("Loaded SimulationProperties: isSimulationErrorsBypassEnabled={}", isSimulationErrorsBypassEnabled);
         log.debug("Loaded InternalApiKey: InternalApiKey={}", internalApiKey == null ? "<not set>" : "***");
+        log.debug("Loaded AuthServiceUrl: authServiceUrl={}", authServiceUrl);
     }
 }

@@ -21,13 +21,14 @@ public interface OrderService {
 
     List<OrderResponseDto> getOrderByUserId(Long userId);
 
-    OrderResponseDto createOrder(OrderCreateDto orderCreateDto);
+    OrderResponseDto createOrder(OrderCreateDto orderCreateDto, Long userId);
 
     /**
      * Создание заказа с опциональным Idempotency-Key ({@code null} - поведение без ключа,
      * обратная совместимость). Повтор ключа с тем же payload'ом никогда не создаёт второй заказ.
+     * {@code userId} берётся из JWT ( AuthPrincipal), а не из тела запроса.
      */
-    OrderCreateResult createOrder(OrderCreateDto orderCreateDto, UUID idempotencyKey);
+    OrderCreateResult createOrder(OrderCreateDto orderCreateDto, Long userId, UUID idempotencyKey);
 
     OrderResponseDto cancelOrder(Long orderId);
 

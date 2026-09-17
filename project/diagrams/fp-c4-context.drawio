@@ -1,0 +1,40 @@
+<mxfile host="Electron" agent="fp-docs">
+  <diagram id="fp-c4-context" name="C4 Context">
+    <mxGraphModel dx="1414" dy="841" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1300" pageHeight="950" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <object placeholders="1" c4Name="Покупатель" c4Type="Персона" c4Description="Регистрация/вход (JWT), профиль, пополнение счёта, каталог и слоты доставки, создание заказов, уведомления" label="&lt;font style=&quot;font-size: 16px&quot;&gt;&lt;b&gt;%c4Name%&lt;/b&gt;&lt;/font&gt;&lt;div&gt;[%c4Type%]&lt;/div&gt;&lt;br&gt;&lt;div&gt;&lt;font style=&quot;font-size: 11px&quot;&gt;%c4Description%&lt;/font&gt;&lt;/div&gt;" id="ctx-buyer">
+          <mxCell parent="1" style="html=1;fontSize=11;dashed=0;whiteSpace=wrap;fillColor=#08427B;strokeColor=#06315C;fontColor=#ffffff;shape=mxgraph.c4.person2;align=center;metaEdit=1;points=[[0.5,0,0],[1,0.5,0],[1,0.75,0],[0.75,1,0],[0.5,1,0],[0.25,1,0],[0,0.75,0],[0,0.5,0]];resizable=0;" vertex="1">
+            <mxGeometry height="200" width="230" x="70" y="70" as="geometry" />
+          </mxCell>
+        </object>
+        <object placeholders="1" c4Name="Администратор" c4Type="Персона" c4Description="Управление товарами/стоком, ёмкостью курьеров, пользователями и ролями (ADMIN)" label="&lt;font style=&quot;font-size: 16px&quot;&gt;&lt;b&gt;%c4Name%&lt;/b&gt;&lt;/font&gt;&lt;div&gt;[%c4Type%]&lt;/div&gt;&lt;br&gt;&lt;div&gt;&lt;font style=&quot;font-size: 11px&quot;&gt;%c4Description%&lt;/font&gt;&lt;/div&gt;" id="ctx-admin">
+          <mxCell parent="1" style="html=1;fontSize=11;dashed=0;whiteSpace=wrap;fillColor=#08427B;strokeColor=#06315C;fontColor=#ffffff;shape=mxgraph.c4.person2;align=center;metaEdit=1;points=[[0.5,0,0],[1,0.5,0],[1,0.75,0],[0.75,1,0],[0.5,1,0],[0.25,1,0],[0,0.75,0],[0,0.5,0]];resizable=0;" vertex="1">
+            <mxGeometry height="200" width="230" x="70" y="360" as="geometry" />
+          </mxCell>
+        </object>
+        <object placeholders="1" c4Name="E2E-тесты (Newman)" c4Type="Персона / автоматизация" c4Description="Прогоны сценариев: сага (успех/отказы), идемпотентность, синхронизация профиля; /internal/** по X-Internal-API-Key" label="&lt;font style=&quot;font-size: 16px&quot;&gt;&lt;b&gt;%c4Name%&lt;/b&gt;&lt;/font&gt;&lt;div&gt;[%c4Type%]&lt;/div&gt;&lt;br&gt;&lt;div&gt;&lt;font style=&quot;font-size: 11px&quot;&gt;%c4Description%&lt;/font&gt;&lt;/div&gt;" id="ctx-e2e">
+          <mxCell parent="1" style="html=1;fontSize=11;dashed=0;whiteSpace=wrap;fillColor=#08427B;strokeColor=#06315C;fontColor=#ffffff;shape=mxgraph.c4.person2;align=center;metaEdit=1;points=[[0.5,0,0],[1,0.5,0],[1,0.75,0],[0.75,1,0],[0.5,1,0],[0.25,1,0],[0,0.75,0],[0,0.5,0]];resizable=0;" vertex="1">
+            <mxGeometry height="210" width="230" x="70" y="650" as="geometry" />
+          </mxCell>
+        </object>
+        <mxCell id="ctx-system" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#08427B;strokeColor=#06315C;fontColor=#ffffff;verticalAlign=top;align=center;fontSize=15;fontStyle=1;spacingTop=14;spacingLeft=10;spacingRight=10;" value="Система интернет-магазина с созданием заказов (OTUS FP)&lt;br&gt;&lt;div style=&quot;font-size:13px;font-weight:normal&quot;&gt;[Система]&lt;/div&gt;&lt;br&gt;&lt;div style=&quot;&quot;&gt;&lt;font style=&quot;font-size: 14px;&quot;&gt;7 микросервисов на Spring Boot:&lt;/font&gt;&lt;/div&gt;&lt;div style=&quot;&quot;&gt;&lt;ol style=&quot;&quot;&gt;&lt;li style=&quot;text-align: left;&quot;&gt;&lt;font style=&quot;font-size: 14px;&quot;&gt;AUTHService&lt;span style=&quot;font-weight: normal;&quot;&gt; - микросервис аутентификации (JWT)&lt;/span&gt;&amp;nbsp;&lt;span style=&quot;font-weight: normal;&quot;&gt;и авторизации;&lt;/span&gt;&lt;/font&gt;&lt;/li&gt;&lt;li style=&quot;text-align: left;&quot;&gt;&lt;font style=&quot;font-size: 14px;&quot;&gt;USERService&lt;span style=&quot;font-weight: normal;&quot;&gt; - микросервис управления пользователями (профиль, личные данные);&lt;/span&gt;&lt;/font&gt;&lt;/li&gt;&lt;li style=&quot;text-align: left;&quot;&gt;&lt;font style=&quot;font-size: 14px;&quot;&gt;BILLINGService&lt;span style=&quot;font-weight: normal;&quot;&gt; - микросервис управления аккаунтом пользователей;&lt;/span&gt;&lt;/font&gt;&lt;/li&gt;&lt;li style=&quot;text-align: left;&quot;&gt;&lt;font style=&quot;font-size: 14px;&quot;&gt;ORDERService&lt;span style=&quot;font-weight: normal;&quot;&gt; - микросервис создания заказов. Р&lt;/span&gt;&lt;span style=&quot;font-weight: 400; text-align: center;&quot;&gt;аспределённая транзакция создания заказа — оркестрируемая сага (биллинг → склад → доставка). Итог -&amp;nbsp;&lt;/span&gt;&lt;span style=&quot;font-weight: 400; text-align: center;&quot;&gt;eventual consistency;&lt;/span&gt;&lt;/font&gt;&lt;/li&gt;&lt;li style=&quot;text-align: left;&quot;&gt;&lt;font style=&quot;font-size: 14px;&quot;&gt;&lt;span style=&quot;text-align: center;&quot;&gt;DELIVERYService&lt;/span&gt;&lt;span style=&quot;font-weight: 400; text-align: center;&quot;&gt; - микросервис доставки (емкость курьеров, слоты доставки);&lt;/span&gt;&lt;/font&gt;&lt;/li&gt;&lt;li style=&quot;text-align: left;&quot;&gt;&lt;font style=&quot;font-size: 14px;&quot;&gt;WAREHOUSEService&lt;span style=&quot;font-weight: 400;&quot;&gt; - микросервис управления товарами/стоком;&lt;/span&gt;&lt;/font&gt;&lt;/li&gt;&lt;li style=&quot;text-align: left;&quot;&gt;&lt;font style=&quot;font-size: 14px;&quot;&gt;NOTIFICATIONService&lt;span style=&quot;font-weight: 400;&quot;&gt; - микросервис уведомлений;&lt;/span&gt;&lt;/font&gt;&lt;/li&gt;&lt;/ol&gt;&lt;/div&gt;" vertex="1">
+          <mxGeometry height="560" width="470" x="630" y="170" as="geometry" />
+        </mxCell>
+        <mxCell id="ctx-note" parent="1" style="shape=note;whiteSpace=wrap;html=1;size=15;fillColor=#FFF2CC;strokeColor=#d6b656;align=center;verticalAlign=middle;fontSize=11;" value="Внешних систем нет — биллинг, склад, доставка, уведомления, аутентификация реализованы внутри системы." vertex="1">
+          <mxGeometry height="70" width="470" x="630" y="750" as="geometry" />
+        </mxCell>
+        <mxCell id="e-buyer-sys" edge="1" parent="1" source="ctx-buyer" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=1;strokeColor=#438DD5;strokeWidth=2;fontSize=10;labelBackgroundColor=#FFFFFF;endArrow=block;endFill=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.3;entryDx=0;entryDy=0;" target="ctx-system" value="Регистрация/вход (JWT), профиль, пополнение счёта,&#xa;каталог и слоты доставки, создание заказов, уведомления">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e-admin-sys" edge="1" parent="1" source="ctx-admin" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=1;strokeColor=#438DD5;strokeWidth=2;fontSize=10;labelBackgroundColor=#FFFFFF;endArrow=block;endFill=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.6;entryDx=0;entryDy=0;" target="ctx-system" value="Управление товарами/стоком, ёмкостью курьеров,&#xa;пользователями и ролями (ADMIN)">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e-e2e-sys" edge="1" parent="1" source="ctx-e2e" style="edgeStyle=orthogonalEdgeStyle;html=1;rounded=1;strokeColor=#438DD5;strokeWidth=2;dashed=1;fontSize=10;labelBackgroundColor=#FFFFFF;endArrow=block;endFill=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.85;entryDx=0;entryDy=0;" target="ctx-system" value="Прогоны сценариев: сага (успех/отказы), идемпотентность,&#xa;синхронизация профиля; /internal/** по X-Internal-API-Key">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

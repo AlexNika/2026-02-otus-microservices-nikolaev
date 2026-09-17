@@ -37,6 +37,8 @@ class DeliveryServiceClientTest {
 
     private static final Long ORDER_ID = 100L;
 
+    private static final Long USER_ID = 7L;
+
     private static final LocalDate DATE = LocalDate.now().plusDays(1);
 
     private static final LocalTime SLOT_START = LocalTime.of(10, 0);
@@ -88,7 +90,7 @@ class DeliveryServiceClientTest {
     void shouldSucceedReserveWhenStatusReserved() {
         stubReserve(reservation("RESERVED"));
 
-        assertDoesNotThrow(() -> client.reserve(ORDER_ID, DATE, SLOT_START, SLOT_END));
+        assertDoesNotThrow(() -> client.reserve(ORDER_ID, USER_ID, DATE, SLOT_START, SLOT_END));
     }
 
     @Test
@@ -97,7 +99,7 @@ class DeliveryServiceClientTest {
         stubReserve(reservation("CANCELLED"));
 
         DeliveryServiceException ex = assertThrows(DeliveryServiceException.class,
-                () -> client.reserve(ORDER_ID, DATE, SLOT_START, SLOT_END));
+                () -> client.reserve(ORDER_ID, USER_ID, DATE, SLOT_START, SLOT_END));
 
         assertThat(ex.getStep()).isEqualTo(OrderSagaState.SagaStep.DELIVERY_RESERVE);
         assertThat(ex.getMessage()).contains("CANCELLED");
@@ -113,7 +115,7 @@ class DeliveryServiceClientTest {
         stubReserve(conflict);
 
         DeliveryServiceException ex = assertThrows(DeliveryServiceException.class,
-                () -> client.reserve(ORDER_ID, DATE, SLOT_START, SLOT_END));
+                () -> client.reserve(ORDER_ID, USER_ID, DATE, SLOT_START, SLOT_END));
 
         assertThat(ex.getCode()).isEqualTo("DELIVERY_NO_FREE_COURIER");
         assertThat(ex.getStep()).isEqualTo(OrderSagaState.SagaStep.DELIVERY_RESERVE);

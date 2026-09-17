@@ -6,6 +6,7 @@ import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.stereotype.Component;
 import ru.otus.hw.config.properties.RabbitMQProperties;
 import ru.otus.hw.dto.NotificationEvent;
+import ru.otus.hw.tracing.W3CTraceContextAdapter;
 
 import java.time.Instant;
 import java.util.UUID;
@@ -27,6 +28,8 @@ public class NotificationEventPublisher {
 
     private final RabbitMQProperties rabbitMQProperties;
 
+    private final W3CTraceContextAdapter traceContextAdapter;
+
     /**
      * Публикует уведомление со случайным eventId: все источники USERService шлют одноразовые
      * уведомления; дедупликация повторных доставок - на стороне NOTIFICATION по eventId.
@@ -45,7 +48,12 @@ public class NotificationEventPublisher {
             rabbitTemplate.convertAndSend(
                     rabbitMQProperties.getNotification().getExchangeName(),
                     rabbitMQProperties.getNotification().getRoutingKey(),
-                    event);
+                    event,
+                    messageToSend -> {
+                        traceContextAdapter.injectCurrent(messageToSend,
+                                (carrier, key, value) -> carrier.getMessageProperties().setHeader(key, value));
+                        return messageToSend;
+                    });
             log.info("Notification published: userId={}, status={}", userId, status);
         } catch (RuntimeException e) {
             log.error("Failed to publish notification (best-effort, swallowed): userId={}, status={}",

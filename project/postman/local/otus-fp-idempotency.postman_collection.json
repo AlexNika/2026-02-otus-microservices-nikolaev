@@ -1,8 +1,8 @@
 {
   "info": {
-    "_postman_id": "c1a7f3e0-52b4-4d8a-9e1f-hw9idemlocal01",
+    "_postman_id": "c1a7f3e0-52b4-4d8a-9e1f-fpidemlocal01",
     "name": "OTUS - Microservices Final Project - Idempotency-Key for POST /order (local)",
-    "description": "E2E сценарий идемпотентности POST /api/v1/order по заголовку Idempotency-Key (локальный аналог k8s-коллекции; план 20260811-idempotency-improvements.md, таск 1):\n1. Подготовка: товар со стоком 20, пользователь, депозит 100 руб., ёмкость курьеров = reservedMax + 2 (шаг-зонд 07a учитывает уже существующие резервы доставки на эту дату).\n2. POST /order с Idempotency-Key (цена 10) -> 201 PLACED.\n3. Повтор того же запроса с тем же Idempotency-Key -> 201, тот же orderId (replay сохранённого ответа), второй заказ НЕ создаётся: у пользователя ровно 1 заказ, баланс 90 (списание одно).\n4. Повтор того же Idempotency-Key с другим payload (цена 20) -> 409 IDEMPOTENCY_KEY_CONFLICT.\n5. POST /order с НОВЫМ Idempotency-Key -> 201, новый orderId, у пользователя 2 заказа, баланс 80.\n\nЗапуск: из fp/ выполнить scripts/05-run-postman-local.ps1 (newman); вручную: newman run postman/local/otus-fp-idempotency.postman_collection.json -e postman/local/local.postman_environment.json. Idempotency-Key — UUID, генерируется в prerequest шага 01; replay возвращает 201 только после синхронно завершённой саги (в сценарии сага синхронная).\n\nПредпосылки: поднята инфраструктура DEV/docker-compose.yaml (6x PostgreSQL + RabbitMQ), все 6 сервисов запущены локально с переменными из fp/.env (порты 8000-8005).",
+    "description": "E2E сценарий идемпотентности POST /api/v1/order по заголовку Idempotency-Key (локальный аналог k8s-коллекции; план 20260811-idempotency-improvements.md, таск 1):\n1. Подготовка: товар со стоком 20, пользователь, депозит 100 руб., ёмкость курьеров = reservedMax + 2 (шаг-зонд 07a учитывает уже существующие резервы доставки на эту дату).\n2. POST /order с Idempotency-Key (цена 10) -> 201 PLACED.\n3. Повтор того же запроса с тем же Idempotency-Key -> 201, тот же orderId (replay сохранённого ответа), второй заказ НЕ создаётся: у пользователя ровно 1 заказ, баланс 90 (списание одно).\n4. Повтор того же Idempotency-Key с другим payload (цена 20) -> 409 IDEMPOTENCY_KEY_CONFLICT.\n5. POST /order с НОВЫМ Idempotency-Key -> 201, новый orderId, у пользователя 2 заказа, баланс 80.\n6. Биллинг-уровень (шаги 19-24): прямой идемпотентный реплей операций BILLINGService (реплей заказа сагу не перезапускает, поэтому биллинг проверяется отдельно): депозит с idempotencyKey и повтор тем же ключом/суммой -> 200 и тот же transactionId без повторного начисления (баланс 80 -> 105), тот же ключ с другой суммой -> 409 IDEMPOTENCY_KEY_CONFLICT; списание по orderId через внутренний POST /internal/order/withdraw (X-Internal-API-Key) и его повтор -> 200 и тот же transactionId без повторного списания (баланс 105 -> 75), тот же orderId с другой суммой -> 409 IDEMPOTENCY_KEY_CONFLICT. Блок добавлен после фикса ленивой загрузки Transaction.account вне транзакции (до фикса шаги реплея отдавали 500).\n\nЗапуск: из fp/ выполнить scripts/05-run-postman-local.ps1 (newman); вручную: newman run postman/local/otus-fp-idempotency.postman_collection.json -e postman/local/local.postman_environment.json. Idempotency-Key — UUID, генерируется в prerequest шага 01; replay возвращает 201 только после синхронно завершённой саги (в сценарии сага синхронная).\n\nПредпосылки: поднята инфраструктура DEV/docker-compose.yaml (6x PostgreSQL + RabbitMQ), все 6 сервисов запущены локально с переменными из fp/.env (порты 8000-8005).",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "item": [
@@ -263,6 +263,49 @@
       "response": []
     },
     {
+      "name": "00b - Admin login (save admin JWT)",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n    \"email\": \"admin@admin.com\",\n    \"password\": \"admin\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": "{{authServiceUrl}}/api/v1/auth/login",
+        "description": "AuthService: получение access/refresh пары токенов; accessToken сохраняется в переменную коллекции adminToken"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Status code is 200\", function () { pm.response.to.have.status(200); });",
+              "",
+              "var jsonData = pm.response.json();",
+              "pm.collectionVariables.set(\"adminToken\", jsonData.accessToken);",
+              "",
+              "pm.test(\"Access token issued (admin)\", function () {",
+              "    pm.expect(jsonData.accessToken).to.be.a(\"string\").and.not.empty;",
+              "    pm.expect(jsonData.tokenType).to.eql(\"Bearer\");",
+              "});",
+              "console.log(\"JWT saved to collection variable 'adminToken'\");"
+            ]
+          }
+        }
+      ]
+    },
+    {
       "name": "07a - Probe existing courier reservations",
       "event": [
         {
@@ -321,7 +364,17 @@
             "{{deliveryDate}}"
           ]
         },
-        "description": "Зонд: какие резервы доставки уже есть на deliveryDate. 404 — ёмкость на дату ещё не задавалась (резервов нет, слот как в шаге 01). 200 — берём самый занятый слот и пересчитываем courierCount = reservedMax + 2."
+        "description": "Зонд: какие резервы доставки уже есть на deliveryDate. 404 — ёмкость на дату ещё не задавалась (резервов нет, слот как в шаге 01). 200 — берём самый занятый слот и пересчитываем courierCount = reservedMax + 2.",
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{adminToken}}",
+              "type": "string"
+            }
+          ]
+        }
       },
       "response": []
     },
@@ -372,7 +425,17 @@
             "{{deliveryDate}}"
           ]
         },
-        "description": "Установка ёмкости курьеров на дату доставки: courierCount = reservedMax + 2 из шага-зонда 07a (антиколлизия с резервами прошлых прогонов, два заказа сценария должны поместиться в один слот); при отсутствии слотов создаются дефолтные 10-12, 12-14, 14-16, 16-18."
+        "description": "Установка ёмкости курьеров на дату доставки: courierCount = reservedMax + 2 из шага-зонда 07a (антиколлизия с резервами прошлых прогонов, два заказа сценария должны поместиться в один слот); при отсутствии слотов создаются дефолтные 10-12, 12-14, 14-16, 16-18.",
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{adminToken}}",
+              "type": "string"
+            }
+          ]
+        }
       },
       "response": []
     },
@@ -429,7 +492,17 @@
             "products"
           ]
         },
-        "description": "Создание товара в WAREHOUSEService."
+        "description": "Создание товара в WAREHOUSEService.",
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{adminToken}}",
+              "type": "string"
+            }
+          ]
+        }
       },
       "response": []
     },
@@ -456,7 +529,6 @@
               "",
               "pm.test(\"User data matches sent data\", function () {",
               "    var jsonData = pm.response.json();",
-              "    pm.expect(jsonData.userName).to.eql(pm.collectionVariables.get(\"userName\"));",
               "    pm.expect(jsonData.email).to.eql(pm.collectionVariables.get(\"userEmail\"));",
               "});"
             ],
@@ -482,9 +554,9 @@
           }
         },
         "url": {
-          "raw": "{{userServiceUrl}}/api/v1/auth/register",
+          "raw": "{{authServiceUrl}}/api/v1/auth/register",
           "host": [
-            "{{userServiceUrl}}"
+            "{{authServiceUrl}}"
           ],
           "path": [
             "api",
@@ -496,6 +568,49 @@
         "description": "Регистрация нового пользователя. USERService автоматически создаёт биллинг-аккаунт с балансом 0."
       },
       "response": []
+    },
+    {
+      "name": "09b - Login user (save JWT)",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n    \"email\": \"{{userEmail}}\",\n    \"password\": \"Password1!\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": "{{authServiceUrl}}/api/v1/auth/login",
+        "description": "AuthService: получение access/refresh пары токенов; accessToken сохраняется в переменную коллекции userToken"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Status code is 200\", function () { pm.response.to.have.status(200); });",
+              "",
+              "var jsonData = pm.response.json();",
+              "pm.collectionVariables.set(\"userToken\", jsonData.accessToken);",
+              "",
+              "pm.test(\"Access token issued (user)\", function () {",
+              "    pm.expect(jsonData.accessToken).to.be.a(\"string\").and.not.empty;",
+              "    pm.expect(jsonData.tokenType).to.eql(\"Bearer\");",
+              "});",
+              "console.log(\"JWT saved to collection variable 'userToken'\");"
+            ]
+          }
+        }
+      ]
     },
     {
       "name": "10 - Deposit 100 RUB (userId)",
@@ -564,7 +679,17 @@
             "deposit"
           ]
         },
-        "description": "Пополнение баланса пользователя на 100 руб."
+        "description": "Пополнение баланса пользователя на 100 руб.",
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{userToken}}",
+              "type": "string"
+            }
+          ]
+        }
       },
       "response": []
     },
@@ -626,7 +751,17 @@
             "order"
           ]
         },
-        "description": "Первое создание заказа с заголовком Idempotency-Key."
+        "description": "Первое создание заказа с заголовком Idempotency-Key.",
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{userToken}}",
+              "type": "string"
+            }
+          ]
+        }
       },
       "response": []
     },
@@ -685,7 +820,17 @@
             "order"
           ]
         },
-        "description": "Повтор запроса с тем же Idempotency-Key и тем же payload: возвращается сохранённый ответ (201), второй заказ не создаётся, повторного списания нет."
+        "description": "Повтор запроса с тем же Idempotency-Key и тем же payload: возвращается сохранённый ответ (201), второй заказ не создаётся, повторного списания нет.",
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{userToken}}",
+              "type": "string"
+            }
+          ]
+        }
       },
       "response": []
     },
@@ -726,7 +871,17 @@
             "{{userId}}"
           ]
         },
-        "description": "Проверка: после replay у пользователя ровно один заказ."
+        "description": "Проверка: после replay у пользователя ровно один заказ.",
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{userToken}}",
+              "type": "string"
+            }
+          ]
+        }
       },
       "response": []
     },
@@ -768,7 +923,17 @@
             "{{userId}}"
           ]
         },
-        "description": "Баланс 90: повтор запроса не сделал второе списание."
+        "description": "Баланс 90: повтор запроса не сделал второе списание.",
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{userToken}}",
+              "type": "string"
+            }
+          ]
+        }
       },
       "response": []
     },
@@ -824,7 +989,17 @@
             "order"
           ]
         },
-        "description": "Тот же Idempotency-Key, но другой payload (цена 20): конфликт 409 IDEMPOTENCY_KEY_CONFLICT."
+        "description": "Тот же Idempotency-Key, но другой payload (цена 20): конфликт 409 IDEMPOTENCY_KEY_CONFLICT.",
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{userToken}}",
+              "type": "string"
+            }
+          ]
+        }
       },
       "response": []
     },
@@ -885,7 +1060,17 @@
             "order"
           ]
         },
-        "description": "Новый ключ — новый заказ: идемпотентность ограничена ключом, а не пользователем."
+        "description": "Новый ключ — новый заказ: идемпотентность ограничена ключом, а не пользователем.",
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{userToken}}",
+              "type": "string"
+            }
+          ]
+        }
       },
       "response": []
     },
@@ -925,7 +1110,17 @@
             "{{userId}}"
           ]
         },
-        "description": "Итог: 2 заказа (первый + новый ключ), replay второго заказа не создал."
+        "description": "Итог: 2 заказа (первый + новый ключ), replay второго заказа не создал.",
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{userToken}}",
+              "type": "string"
+            }
+          ]
+        }
       },
       "response": []
     },
@@ -967,7 +1162,397 @@
             "{{userId}}"
           ]
         },
-        "description": "Баланс 80: два списания по двум заказам, replay duplication нет."
+        "description": "Баланс 80: два списания по двум заказам, replay duplication нет.",
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{userToken}}",
+              "type": "string"
+            }
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "19 - BILLING deposit с idempotencyKey",
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "exec": [
+              "pm.collectionVariables.set(\"billingDepositKey\", pm.variables.replaceIn(\"{{$guid}}\"));"
+            ],
+            "type": "text/javascript"
+          }
+        },
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Status code is 200\", function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.test(\"Balance is 105 after deposit 25\", function () {",
+              "    pm.expect(Number(pm.response.json().newBalance)).to.eql(105);",
+              "});",
+              "",
+              "pm.collectionVariables.set(\"billingDepositTxId\", String(pm.response.json().transactionId));"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n    \"amount\": 25,\n    \"idempotencyKey\": \"{{billingDepositKey}}\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{billingServiceUrl}}/api/v1/account/{{userId}}/deposit",
+          "host": [
+            "{{billingServiceUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "account",
+            "{{userId}}",
+            "deposit"
+          ]
+        },
+        "description": "Депозит 25 руб. с idempotencyKey: баланс 80 -> 105.",
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{userToken}}",
+              "type": "string"
+            }
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "20 - BILLING deposit replay: тот же ключ и сумма -> 200, тот же transactionId",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Status code is 200\", function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.test(\"Replay returns the same transactionId, no double deposit\", function () {",
+              "    var jsonData = pm.response.json();",
+              "    pm.expect(String(jsonData.transactionId)).to.eql(pm.collectionVariables.get(\"billingDepositTxId\"));",
+              "    pm.expect(Number(jsonData.newBalance)).to.eql(105);",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n    \"amount\": 25,\n    \"idempotencyKey\": \"{{billingDepositKey}}\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{billingServiceUrl}}/api/v1/account/{{userId}}/deposit",
+          "host": [
+            "{{billingServiceUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "account",
+            "{{userId}}",
+            "deposit"
+          ]
+        },
+        "description": "Повтор депозита тем же idempotencyKey и суммой: идемпотентный реплей, баланс не меняется.",
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{userToken}}",
+              "type": "string"
+            }
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "21 - BILLING deposit: тот же ключ, другая сумма -> 409",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Status code is 409\", function () {",
+              "    pm.response.to.have.status(409);",
+              "});",
+              "",
+              "pm.test(\"Error code is IDEMPOTENCY_KEY_CONFLICT\", function () {",
+              "    pm.expect(pm.response.json().code).to.eql(\"IDEMPOTENCY_KEY_CONFLICT\");",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n    \"amount\": 50,\n    \"idempotencyKey\": \"{{billingDepositKey}}\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{billingServiceUrl}}/api/v1/account/{{userId}}/deposit",
+          "host": [
+            "{{billingServiceUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "account",
+            "{{userId}}",
+            "deposit"
+          ]
+        },
+        "description": "Тот же idempotencyKey с другой суммой -> конфликт идемпотентности.",
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{userToken}}",
+              "type": "string"
+            }
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "22 - BILLING withdraw по orderId (internal)",
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "exec": [
+              "pm.collectionVariables.set(\"billingOrderId\", String(Date.now()));"
+            ],
+            "type": "text/javascript"
+          }
+        },
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Status code is 200\", function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.test(\"Balance is 75 after withdrawal of 30\", function () {",
+              "    pm.expect(Number(pm.response.json().newBalance)).to.eql(75);",
+              "});",
+              "",
+              "pm.collectionVariables.set(\"billingWithdrawTxId\", String(pm.response.json().transactionId));"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "X-Internal-API-Key",
+            "value": "{{internalApiKey}}"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n    \"userId\": {{userId}},\n    \"orderId\": {{billingOrderId}},\n    \"amount\": 30\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{billingServiceUrl}}/internal/order/withdraw",
+          "host": [
+            "{{billingServiceUrl}}"
+          ],
+          "path": [
+            "internal",
+            "order",
+            "withdraw"
+          ]
+        },
+        "description": "Внутреннее списание 30 руб. по orderId (как вызывает ORDERService): баланс 105 -> 75."
+      },
+      "response": []
+    },
+    {
+      "name": "23 - BILLING withdraw replay: тот же orderId -> 200, тот же transactionId",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Status code is 200\", function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.test(\"Replay returns the same transactionId, no double withdrawal\", function () {",
+              "    var jsonData = pm.response.json();",
+              "    pm.expect(String(jsonData.transactionId)).to.eql(pm.collectionVariables.get(\"billingWithdrawTxId\"));",
+              "    pm.expect(Number(jsonData.newBalance)).to.eql(75);",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "X-Internal-API-Key",
+            "value": "{{internalApiKey}}"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n    \"userId\": {{userId}},\n    \"orderId\": {{billingOrderId}},\n    \"amount\": 30\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{billingServiceUrl}}/internal/order/withdraw",
+          "host": [
+            "{{billingServiceUrl}}"
+          ],
+          "path": [
+            "internal",
+            "order",
+            "withdraw"
+          ]
+        },
+        "description": "Повтор списания по тому же orderId (ретрай саги): идемпотентный реплей, баланс не меняется."
+      },
+      "response": []
+    },
+    {
+      "name": "24 - BILLING withdraw: тот же orderId, другая сумма -> 409",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Status code is 409\", function () {",
+              "    pm.response.to.have.status(409);",
+              "});",
+              "",
+              "pm.test(\"Error code is IDEMPOTENCY_KEY_CONFLICT\", function () {",
+              "    pm.expect(pm.response.json().code).to.eql(\"IDEMPOTENCY_KEY_CONFLICT\");",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "X-Internal-API-Key",
+            "value": "{{internalApiKey}}"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n    \"userId\": {{userId}},\n    \"orderId\": {{billingOrderId}},\n    \"amount\": 40\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{billingServiceUrl}}/internal/order/withdraw",
+          "host": [
+            "{{billingServiceUrl}}"
+          ],
+          "path": [
+            "internal",
+            "order",
+            "withdraw"
+          ]
+        },
+        "description": "Тот же orderId с другой суммой -> конфликт идемпотентности."
       },
       "response": []
     }
@@ -1085,6 +1670,46 @@
     },
     {
       "key": "secondOrderId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "value": "http://localhost:8006",
+      "type": "default",
+      "key": "authServiceUrl"
+    },
+    {
+      "value": "",
+      "type": "default",
+      "key": "adminToken"
+    },
+    {
+      "value": "",
+      "type": "default",
+      "key": "userToken"
+    },
+    {
+      "key": "billingDepositKey",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "billingDepositTxId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "billingOrderId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "billingWithdrawTxId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "internalApiKey",
       "value": "",
       "type": "string"
     }

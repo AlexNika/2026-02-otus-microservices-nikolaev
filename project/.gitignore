@@ -42,14 +42,17 @@ bin/
 
 ### Mac OS ###
 .DS_Store
-/USERService/.env
-/.gigacode/
-/.env
-/amplicode.xml
-/logs/
+
+### Custom ###
+/AUTHService/logs/
+/USERService/logs/
 /BILLINGService/logs/
-/DELIVERYService/logs/
 /ORDERService/logs/
+/DELIVERYService/logs/
 /WAREHOUSEService/logs/
-/fpchart/values-secret.yaml
+/NOTIFICATIONService/logs/
+
+/charts/finalproject/values-secret.yaml
 /connekt.private.env.json
+/Modelfile
+/reports/services/

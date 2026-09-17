@@ -1,5 +1,6 @@
 package ru.otus.hw.consumer;
 
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.jspecify.annotations.NonNull;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -19,10 +20,12 @@ import ru.otus.hw.dto.UserCreatedEvent;
 import ru.otus.hw.producer.AccountEventPublisher;
 import ru.otus.hw.producer.NotificationEventPublisher;
 import ru.otus.hw.service.AccountService;
+import ru.otus.hw.tracing.W3CTraceContextAdapter;
 
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
+import java.util.Map;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -65,12 +68,23 @@ class UserCreatedEventConsumerTest {
     @Mock
     private NotificationEventPublisher notificationEventPublisher;
 
+    private final SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
+
+    @Mock
+    private W3CTraceContextAdapter traceContextAdapter;
+
     private UserCreatedEventConsumer consumer() {
-        return new UserCreatedEventConsumer(accountService, accountEventPublisher, notificationEventPublisher);
+        return new UserCreatedEventConsumer(accountService, accountEventPublisher, notificationEventPublisher,
+                traceContextAdapter, meterRegistry);
     }
 
     private static @NonNull UserCreatedEvent event() {
-        return new UserCreatedEvent(INCOMING_EVENT_ID, USER_ID, "john@example.com", Instant.now());
+        return UserCreatedEvent.builder()
+                .eventId(INCOMING_EVENT_ID)
+                .userId(USER_ID)
+                .email("john@example.com")
+                .timestamp(Instant.now())
+                .build();
     }
 
     @Test
@@ -80,7 +94,7 @@ class UserCreatedEventConsumerTest {
         when(accountService.createAccount(any(AccountCreateDto.class)))
                 .thenReturn(new AccountResponseDto(ACCOUNT_ID, USER_ID, BigDecimal.ZERO, true, false));
 
-        consumer().handleUserCreated(event());
+        consumer().handleUserCreated(event(), Map.of());
 
         ArgumentCaptor<AccountCreateDto> createCaptor = ArgumentCaptor.forClass(AccountCreateDto.class);
         verify(accountService).createAccount(createCaptor.capture());
@@ -95,6 +109,8 @@ class UserCreatedEventConsumerTest {
 
         verify(notificationEventPublisher).publish(eq(INCOMING_EVENT_ID), eq(USER_ID), eq("ACCOUNT_CREATED"),
                 contains(String.valueOf(ACCOUNT_ID)));
+        assertThat(meterRegistry.counter("billing.accounts.opened").count()).isEqualTo(1.0);
+        assertThat(meterRegistry.counter("billing.accounts.creation.failures").count()).isZero();
     }
 
     @Test
@@ -104,8 +120,8 @@ class UserCreatedEventConsumerTest {
         when(accountService.createAccount(any(AccountCreateDto.class)))
                 .thenReturn(new AccountResponseDto(ACCOUNT_ID, USER_ID, BigDecimal.ZERO, true, false));
 
-        consumer().handleUserCreated(event());
-        consumer().handleUserCreated(event());
+        consumer().handleUserCreated(event(), Map.of());
+        consumer().handleUserCreated(event(), Map.of());
 
         ArgumentCaptor<String> eventIdCaptor = ArgumentCaptor.forClass(String.class);
         verify(notificationEventPublisher, org.mockito.Mockito.times(2)).publish(eventIdCaptor.capture(),
@@ -121,11 +137,13 @@ class UserCreatedEventConsumerTest {
                 .thenThrow(new IllegalStateException("billing postgres is down"));
 
         UserCreatedEventConsumer consumer = consumer();
-        assertThatThrownBy(() -> consumer.handleUserCreated(event()))
+        assertThatThrownBy(() -> consumer.handleUserCreated(event(), Map.of()))
                 .isInstanceOf(IllegalStateException.class);
 
         verify(notificationEventPublisher).publish(eq(EXPECTED_FAILURE_EVENT_ID), eq(USER_ID),
                 eq("ACCOUNT_CREATION_FAILED"), contains("billing postgres is down"));
+        assertThat(meterRegistry.counter("billing.accounts.creation.failures").count()).isEqualTo(1.0);
+        assertThat(meterRegistry.counter("billing.accounts.opened").count()).isZero();
     }
 
     @Test
@@ -136,8 +154,10 @@ class UserCreatedEventConsumerTest {
                 .thenThrow(new IllegalStateException("second failure"));
 
         UserCreatedEventConsumer consumer = consumer();
-        assertThatThrownBy(() -> consumer.handleUserCreated(event())).isInstanceOf(IllegalStateException.class);
-        assertThatThrownBy(() -> consumer.handleUserCreated(event())).isInstanceOf(IllegalStateException.class);
+            assertThatThrownBy(() -> consumer.handleUserCreated(event(),
+                    Map.of())).isInstanceOf(IllegalStateException.class);
+            assertThatThrownBy(() -> consumer.handleUserCreated(event(),
+                    Map.of())).isInstanceOf(IllegalStateException.class);
 
         ArgumentCaptor<String> eventIdCaptor = ArgumentCaptor.forClass(String.class);
         verify(notificationEventPublisher, org.mockito.Mockito.times(2)).publish(eventIdCaptor.capture(),
@@ -153,9 +173,10 @@ class UserCreatedEventConsumerTest {
                 .thenReturn(new AccountResponseDto(ACCOUNT_ID, USER_ID, BigDecimal.ZERO, true, false));
         NotificationEventPublisher failingPublisher = realPublisherWithFailingBroker();
         UserCreatedEventConsumer consumer =
-                new UserCreatedEventConsumer(accountService, accountEventPublisher, failingPublisher);
+                new UserCreatedEventConsumer(accountService, accountEventPublisher, failingPublisher,
+                        mock(W3CTraceContextAdapter.class), meterRegistry);
 
-        assertThatCode(() -> consumer.handleUserCreated(event())).doesNotThrowAnyException();
+        assertThatCode(() -> consumer.handleUserCreated(event(), Map.of())).doesNotThrowAnyException();
 
         verify(accountEventPublisher).publish(any(AccountCreatedEvent.class));
     }
@@ -168,6 +189,7 @@ class UserCreatedEventConsumerTest {
         RabbitTemplate rabbitTemplate = mock(RabbitTemplate.class);
         doThrow(new AmqpException("broker unavailable"))
                 .when(rabbitTemplate).convertAndSend(anyString(), anyString(), any(Object.class));
-        return new NotificationEventPublisher(rabbitTemplate, new RabbitMQProperties());
+        return new NotificationEventPublisher(rabbitTemplate, new RabbitMQProperties(),
+                mock(W3CTraceContextAdapter.class));
     }
 }

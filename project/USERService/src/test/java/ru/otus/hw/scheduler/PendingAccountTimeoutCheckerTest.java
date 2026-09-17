@@ -88,7 +88,7 @@ class PendingAccountTimeoutCheckerTest {
     }
 
     @Test
-    @DisplayName("аккаунт появился (200): ACTIVE + снятие locked + уведомление ACCOUNT_ACTIVATED")
+    @DisplayName("аккаунт появился (200): ACTIVE + уведомление ACCOUNT_ACTIVATED")
     void shouldActivateUserWhenAccountExists() {
         User user = pendingUser(LocalDateTime.now().minusMinutes(31));
         when(userRepository.findByAccountStatusAndCreatedBefore(any(), any())).thenReturn(List.of(user));
@@ -99,13 +99,12 @@ class PendingAccountTimeoutCheckerTest {
         ArgumentCaptor<User> captor = ArgumentCaptor.forClass(User.class);
         verify(userRepository).save(captor.capture());
         assertThat(captor.getValue().getAccountStatus()).isEqualTo(AccountStatus.ACTIVE);
-        assertThat(captor.getValue().isLocked()).isFalse();
 
         verify(notificationEventPublisher).publish(eq(USER_ID), eq("ACCOUNT_ACTIVATED"), anyString());
     }
 
     @Test
-    @DisplayName("аккаунта нет (404): BLOCKED + locked=true + уведомление ACCOUNT_CREATION_FAILED про тайм-аут")
+    @DisplayName("аккаунта нет (404): BLOCKED + уведомление ACCOUNT_CREATION_FAILED про тайм-аут")
     void shouldBlockUserWhenAccountMissing() {
         User user = pendingUser(LocalDateTime.now().minusMinutes(31));
         when(userRepository.findByAccountStatusAndCreatedBefore(any(), any())).thenReturn(List.of(user));
@@ -116,7 +115,6 @@ class PendingAccountTimeoutCheckerTest {
         ArgumentCaptor<User> captor = ArgumentCaptor.forClass(User.class);
         verify(userRepository).save(captor.capture());
         assertThat(captor.getValue().getAccountStatus()).isEqualTo(AccountStatus.BLOCKED);
-        assertThat(captor.getValue().isLocked()).isTrue();
 
         verify(notificationEventPublisher).publish(eq(USER_ID), eq("ACCOUNT_CREATION_FAILED"),
                 contains("тайм-аут"));

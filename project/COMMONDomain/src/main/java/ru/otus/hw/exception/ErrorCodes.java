@@ -34,6 +34,10 @@ public final class ErrorCodes {
 
     public static final String RESERVATION_ALREADY_CONFIRMED = "RESERVATION_ALREADY_CONFIRMED";
 
+    public static final String CIRCUIT_BREAKER_OPEN = "CIRCUIT_BREAKER_OPEN";
+
+    public static final String RATE_LIMITED = "RATE_LIMITED";
+
     private ErrorCodes() {
     }
 }

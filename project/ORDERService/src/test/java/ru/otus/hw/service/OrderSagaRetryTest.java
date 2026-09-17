@@ -1,5 +1,11 @@
 package ru.otus.hw.service;
 
+import io.github.resilience4j.circuitbreaker.CallNotPermittedException;
+import io.github.resilience4j.circuitbreaker.CircuitBreaker;
+import io.github.resilience4j.circuitbreaker.CircuitBreakerConfig;
+import io.github.resilience4j.core.IntervalFunction;
+import io.github.resilience4j.retry.Retry;
+import io.github.resilience4j.retry.RetryConfig;
 import org.jspecify.annotations.NonNull;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -9,11 +15,14 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
+import org.springframework.http.HttpStatusCode;
 import org.springframework.transaction.support.TransactionCallback;
 import org.springframework.transaction.support.TransactionTemplate;
+import org.springframework.web.client.HttpServerErrorException;
 import ru.otus.hw.client.BillingServiceClient;
 import ru.otus.hw.client.DeliveryServiceClient;
 import ru.otus.hw.client.WarehouseServiceClient;
+import ru.otus.hw.config.ResilienceConfig;
 import ru.otus.hw.dto.DeliveryReservationResponse;
 import ru.otus.hw.dto.OrderCreateDto;
 import ru.otus.hw.dto.OrderResponseDto;
@@ -23,6 +32,7 @@ import ru.otus.hw.dto.ReservationStatus;
 import ru.otus.hw.dto.mapper.OrderMapper;
 import ru.otus.hw.exception.BillingServiceException;
 import ru.otus.hw.exception.ErrorCodes;
+import ru.otus.hw.exception.WarehouseServiceException;
 import ru.otus.hw.models.Order;
 import ru.otus.hw.models.OrderSagaState;
 import ru.otus.hw.models.OrderSagaState.SagaStatus;
@@ -31,12 +41,15 @@ import ru.otus.hw.repository.OrderRepository;
 import ru.otus.hw.repository.OrderSagaStateRepository;
 
 import java.math.BigDecimal;
+import java.time.Duration;
 import java.time.LocalDate;
 import java.time.LocalTime;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
@@ -48,12 +61,18 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
- * Ретраи шагов саги на транзитные ошибки и разрешение неопределённости confirm
+ * Семантика отказоустойчивости шагов саги после переезда ретраев на
+ * {@code @Retry}/{@code @CircuitBreaker}/{@code @RateLimiter} клиентов (Resilience4j):
+ * <ul>
+ *   <li>ретраи/классификация проверяются на программно собранных декораторах с теми же
+ *       кастомайзерами, что и в проде ({@link ResilienceConfig});</li>
+ *   <li>поведение {@code OrderServiceImpl} (confirm-пробы, компенсации) - на моках,
+ *       где клиент вызывается один раз (ретраи внутри клиентского прокси).</li>
+ * </ul>
  */
 @ExtendWith(MockitoExtension.class)
 @MockitoSettings(strictness = Strictness.LENIENT)
 class OrderSagaRetryTest {
-
     private static final Long ORDER_ID = 100L;
 
     private static final Long USER_ID = 7L;
@@ -94,11 +113,17 @@ class OrderSagaRetryTest {
     @Mock
     private NotificationEventPublisher notificationEventPublisher;
 
+    @Mock
+    private ru.otus.hw.metrics.SagaMetrics sagaMetrics;
+
+    @Mock
+    private ru.otus.hw.metrics.OrderBusinessMetrics orderBusinessMetrics;
+
     @InjectMocks
     private OrderServiceImpl orderService;
 
     private OrderCreateDto createDto() {
-        return new OrderCreateDto(USER_ID, PRICE, "test order", PRODUCT_ID, QUANTITY,
+        return new OrderCreateDto(PRICE, "test order", PRODUCT_ID, QUANTITY,
                 DELIVERY_DATE, SLOT_START, SLOT_END);
     }
 
@@ -142,33 +167,157 @@ class OrderSagaRetryTest {
         });
     }
 
-    @Test
-    @DisplayName("5xx/таймаут на withdraw -> ретрай, успех со 2-й попытки, заказ PLACED")
-    void shouldRetryTransientBillingErrorAndSucceed() {
-        stubSuccessfulSagaPersistence();
-        doThrow(new BillingServiceException("Billing timeout", null, true, null, null))
-                .doNothing()
-                .when(billingServiceClient).withdrawFunds(USER_ID, PRICE, ORDER_ID);
+    /**
+     * Аналог прод-конфига: 3 попытки, бэкофф 200мс × 2, классификация из
+     * {@link ResilienceConfig}, {@code CallNotPermittedException} не ретраится.
+     */
+    private Retry retry(String instance) {
+        RetryConfig.Builder<?> builder = RetryConfig.custom()
+                .maxAttempts(3)
+                .intervalFunction(IntervalFunction.ofExponentialBackoff(Duration.ofMillis(200), 2.0))
+                .ignoreExceptions(CallNotPermittedException.class);
+        new ResilienceConfig().billingRetryCustomizer().customize(builder);
+        return Retry.of(instance, builder.build());
+    }
 
-        OrderResponseDto response = orderService.createOrder(createDto());
+    private CircuitBreaker circuitBreaker(String instance) {
+        CircuitBreakerConfig.Builder builder = CircuitBreakerConfig.custom()
+                .slidingWindowSize(10)
+                .minimumNumberOfCalls(5)
+                .failureRateThreshold(50)
+                .waitDurationInOpenState(Duration.ofSeconds(10))
+                .permittedNumberOfCallsInHalfOpenState(3);
+        new ResilienceConfig().billingCircuitBreakerCustomizer().customize(builder);
+        return CircuitBreaker.of(instance, builder.build());
+    }
 
-        assertThat(response.orderStatus()).isEqualTo(Order.OrderStatus.PLACED);
-        verify(billingServiceClient, times(2)).withdrawFunds(USER_ID, PRICE, ORDER_ID);
-        verify(billingServiceClient, never()).refundFunds(anyLong(), any(), anyLong());
+    /** Retry( CircuitBreaker( вызов ) ) - как порядок аспектов в проде. */
+    private Runnable decorated(Retry retry, CircuitBreaker circuitBreaker, Runnable step) {
+        return Retry.decorateRunnable(retry,
+                CircuitBreaker.decorateRunnable(circuitBreaker, step));
+    }
+
+    private BillingServiceException transientBillingError() {
+        return new BillingServiceException("Billing timeout", null, true, null, null);
+    }
+
+    private BillingServiceException businessBillingError() {
+        return new BillingServiceException("Insufficient funds", null, false,
+                ErrorCodes.BILLING_INSUFFICIENT_FUNDS, 409);
+    }
+
+    private WarehouseServiceException warehouseServerError(OrderSagaState.SagaStep step) {
+        return new WarehouseServiceException(step, null, "Warehouse 500",
+                HttpServerErrorException.create(HttpStatusCode.valueOf(500), "Server Error",
+                        null, null, null));
     }
 
     @Test
-    @DisplayName("бизнес-отказ BILLING_INSUFFICIENT_FUNDS -> 0 ретраев, сразу компенсация")
+    @DisplayName("транзитный сбой биллинга -> ретрай, успех со 2-й попытки (ровно 2 вызова)")
+    void shouldRetryTransientBillingErrorAndSucceed() {
+        AtomicInteger attempts = new AtomicInteger();
+        Runnable step = () -> {
+            if (attempts.incrementAndGet() == 1) {
+                throw transientBillingError();
+            }
+        };
+
+        decorated(retry("billingService"), circuitBreaker("billingService"), step).run();
+
+        assertThat(attempts.get()).isEqualTo(2);
+    }
+
+    @Test
+    @DisplayName("бизнес-отказ (4хх) -> 0 ретраев, исключение пробрасывается с кодом")
     void shouldNotRetryBusinessFailure() {
-        stubSuccessfulSagaPersistence();
-        doThrow(new BillingServiceException("Insufficient funds", null, false,
-                ErrorCodes.BILLING_INSUFFICIENT_FUNDS, 409))
-                .when(billingServiceClient).withdrawFunds(USER_ID, PRICE, ORDER_ID);
+        AtomicInteger attempts = new AtomicInteger();
+        Runnable step = () -> {
+            attempts.incrementAndGet();
+            throw businessBillingError();
+        };
 
-        assertThrows(BillingServiceException.class, () -> orderService.createOrder(createDto()));
+        Runnable runnable = decorated(retry("billingService"), circuitBreaker("billingService"), step);
 
-        verify(billingServiceClient, times(1)).withdrawFunds(USER_ID, PRICE, ORDER_ID);
-        verify(warehouseServiceClient, never()).reserve(anyLong(), anyLong(), any(), anyString());
+        assertThatThrownBy(runnable::run)
+                .isInstanceOf(BillingServiceException.class)
+                .extracting(ex -> ((BillingServiceException) ex).getCode())
+                .isEqualTo(ErrorCodes.BILLING_INSUFFICIENT_FUNDS);
+        assertThat(attempts.get()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("5xx склада -> ретрай, успех со 2-й попытки")
+    void shouldRetryWarehouseServerErrorAndSucceed() {
+        AtomicInteger attempts = new AtomicInteger();
+        Runnable step = () -> {
+            if (attempts.incrementAndGet() == 1) {
+                throw warehouseServerError(OrderSagaState.SagaStep.WAREHOUSE_RESERVE);
+            }
+        };
+
+        decorated(retry("warehouseService"), circuitBreaker("warehouseService"), step).run();
+
+        assertThat(attempts.get()).isEqualTo(2);
+    }
+
+    @Test
+    @DisplayName("исключение с кодом RATE_LIMITED (fallback лимитера) ретраится")
+    void shouldRetryRateLimitedFailure() {
+        AtomicInteger attempts = new AtomicInteger();
+        Runnable step = () -> {
+            if (attempts.incrementAndGet() == 1) {
+                throw new WarehouseServiceException(OrderSagaState.SagaStep.WAREHOUSE_RESERVE,
+                        ErrorCodes.RATE_LIMITED, "rate limit exhausted");
+            }
+        };
+
+        decorated(retry("warehouseService"), circuitBreaker("warehouseService"), step).run();
+
+        assertThat(attempts.get()).isEqualTo(2);
+    }
+
+    @Test
+    @DisplayName("открытый circuit breaker -> CallNotPermitted без ретраев (1 попытка)")
+    void shouldFailFastWhenCircuitBreakerOpen() {
+        CircuitBreaker circuitBreaker = circuitBreaker("warehouseService");
+        circuitBreaker.transitionToOpenState();
+        AtomicInteger attempts = new AtomicInteger();
+
+        Runnable runnable = decorated(retry("warehouseService"), circuitBreaker, attempts::incrementAndGet);
+
+        assertThatThrownBy(runnable::run).isInstanceOf(CallNotPermittedException.class);
+        assertThat(attempts.get()).isZero();
+    }
+
+    @Test
+    @DisplayName("бизнес-отказы не открывают circuit breaker, транзитные сбои открывают")
+    void shouldRecordOnlyTransientFailuresInCircuitBreaker() {
+        CircuitBreaker circuitBreaker = circuitBreaker("billingService");
+        Retry noWaitRetry = retryWithoutDelays("billingService");
+
+        for (int i = 0; i < 10; i++) {
+            assertThatThrownBy(decorated(noWaitRetry, circuitBreaker,
+                    () -> {
+                        throw businessBillingError();
+                    })::run).isInstanceOf(BillingServiceException.class);
+        }
+        assertThat(circuitBreaker.getState()).isEqualTo(CircuitBreaker.State.CLOSED);
+
+        for (int i = 0; i < 5; i++) {
+            assertThatThrownBy(decorated(noWaitRetry, circuitBreaker,
+                    () -> {
+                        throw transientBillingError();
+                    })::run).isInstanceOf(BillingServiceException.class);
+        }
+        assertThat(circuitBreaker.getState()).isEqualTo(CircuitBreaker.State.OPEN);
+    }
+
+    private Retry retryWithoutDelays(String instance) {
+        RetryConfig.Builder<?> builder = RetryConfig.custom()
+                .maxAttempts(1)
+                .ignoreExceptions(CallNotPermittedException.class);
+        new ResilienceConfig().billingRetryCustomizer().customize(builder);
+        return Retry.of(instance, builder.build());
     }
 
     @Test
@@ -184,10 +333,10 @@ class OrderSagaRetryTest {
         when(warehouseServiceClient.getReservation(ORDER_ID))
                 .thenReturn(new ProductReservationListResponseDto(ORDER_ID, List.of(reservation)));
 
-        OrderResponseDto response = orderService.createOrder(createDto());
+        OrderResponseDto response = orderService.createOrder(createDto(), USER_ID);
 
         assertThat(response.orderStatus()).isEqualTo(Order.OrderStatus.PLACED);
-        verify(warehouseServiceClient, times(3)).confirm(ORDER_ID);
+        verify(warehouseServiceClient, times(1)).confirm(ORDER_ID);
         verify(deliveryServiceClient).confirm(ORDER_ID);
         verify(billingServiceClient, never()).refundFunds(anyLong(), any(), anyLong());
         verify(warehouseServiceClient, never()).cancel(anyLong());
@@ -203,28 +352,11 @@ class OrderSagaRetryTest {
         when(deliveryServiceClient.getReservation(ORDER_ID))
                 .thenReturn(DeliveryReservationResponse.builder().orderId(ORDER_ID).status("RESERVED").build());
 
-        assertThrows(BillingServiceException.class, () -> orderService.createOrder(createDto()));
+        assertThrows(BillingServiceException.class, () -> orderService.createOrder(createDto(), USER_ID));
 
+        verify(deliveryServiceClient, times(1)).confirm(ORDER_ID);
         verify(deliveryServiceClient).cancel(ORDER_ID);
         verify(warehouseServiceClient).cancel(ORDER_ID);
         verify(billingServiceClient).refundFunds(USER_ID, PRICE, ORDER_ID);
-    }
-
-    @Test
-    @DisplayName("ретрай на 5xx склада -> успех со 2-й попытки")
-    void shouldRetryWarehouseServerErrorAndSucceed() {
-        stubSuccessfulSagaPersistence();
-        doThrow(new ru.otus.hw.exception.WarehouseServiceException(
-                OrderSagaState.SagaStep.WAREHOUSE_RESERVE, null, "Warehouse 500",
-                org.springframework.web.client.HttpServerErrorException.create(
-                        org.springframework.http.HttpStatusCode.valueOf(500), "Server Error",
-                        null, null, null)))
-                .doNothing()
-                .when(warehouseServiceClient).reserve(anyLong(), anyLong(), any(), anyString());
-
-        OrderResponseDto response = orderService.createOrder(createDto());
-
-        assertThat(response.orderStatus()).isEqualTo(Order.OrderStatus.PLACED);
-        verify(warehouseServiceClient, times(2)).reserve(anyLong(), anyLong(), any(), anyString());
     }
 }

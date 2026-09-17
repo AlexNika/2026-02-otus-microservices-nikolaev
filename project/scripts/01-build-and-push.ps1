@@ -8,7 +8,10 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
+Set-Location (Join-Path $PSScriptRoot '..')
+
 $services = @(
+  @{ Module='AUTHService'; Tag='fp-auth'; Port=8006 },
   @{ Module='USERService'; Tag='fp-user'; Port=8000 },
   @{ Module='BILLINGService'; Tag='fp-billing'; Port=8001 },
   @{ Module='ORDERService'; Tag='fp-order'; Port=8002 },

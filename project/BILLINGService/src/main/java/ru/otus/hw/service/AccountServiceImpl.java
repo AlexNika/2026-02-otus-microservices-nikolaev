@@ -74,7 +74,7 @@ public class AccountServiceImpl implements AccountService {
     /**
      * Идемпотентное создание аккаунта по natural key userId (unique accounts.user_id):
      * check-then-insert, а гонка параллельных вставок (например, ретраи consumer'а)
-     * разруливается по образцу {@code TransactionServiceImpl.deposit} — мутация короткой
+     * разруливается по образцу {@code TransactionServiceImpl.deposit} - мутация короткой
      * транзакцией через {@link TransactionTemplate}, конфликт уникального ключа ловится
      * ВНЕ её, и повторный SELECT в новой транзакции возвращает аккаунт-победитель
      * вместо проброса {@code DataIntegrityViolationException} в глобальный обработчик (409).

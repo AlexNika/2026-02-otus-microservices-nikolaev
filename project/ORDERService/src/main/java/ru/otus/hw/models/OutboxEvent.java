@@ -57,6 +57,12 @@ public class OutboxEvent {
     @Column(name = "created_at", nullable = false)
     private LocalDateTime createdAt;
 
+    @Column(name = "traceparent", length = 55)
+    private String traceparent;
+
+    @Column(name = "tracestate", columnDefinition = "TEXT")
+    private String tracestate;
+
     @Column(name = "sent_at")
     private LocalDateTime sentAt;
 

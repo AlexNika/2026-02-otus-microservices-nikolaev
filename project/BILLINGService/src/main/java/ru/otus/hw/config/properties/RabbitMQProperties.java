@@ -6,10 +6,10 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.stereotype.Component;
 
 /**
- * Топология RabbitMQ BILLINGService (app.rabbitmq.*):
- * consumer - приём UserCreatedEvent (users.events / billing.account-create.queue);
- * producer - публикация AccountCreatedEvent (accounts.events / account.created);
- * notification - best-effort уведомления (notifications.events / notification.event).
+ * Топология RabbitMQ BILLINGService (app.rabbitmq.*):<br>
+ * - consumer - приём UserCreatedEvent (users.events / billing.account-create.queue);<br>
+ * - producer - публикация AccountCreatedEvent (accounts.events / account.created);<br>
+ * - notification - best-effort уведомления (notifications.events / notification.event).
  */
 @Getter
 @Setter

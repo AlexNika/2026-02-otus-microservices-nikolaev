@@ -1,37 +1,72 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <configuration>
-    <property name="LOGS" value="./logs" />
+    <include resource="org/springframework/boot/logging/logback/defaults.xml"/>
 
-    <!-- Appender для консоли -->
-    <appender name="STDOUT" class="ch.qos.logback.core.ConsoleAppender">
-        <encoder>
-            <pattern>%d{yyyy-MM-dd HH:mm:ss} [%thread] %highlight(%-5level) %cyan(%logger{36}) traceId=%X{traceId:-} spanId=%X{spanId:-} - %msg%n</pattern>
-        </encoder>
-    </appender>
+    <springProperty scope="context" name="applicationName" source="spring.application.name" defaultValue="unknown-service"/>
+    <springProperty scope="context" name="activeProfile" source="spring.profiles.active" defaultValue="default"/>
 
-    <!-- Appender для файла с ротацией -->
-    <appender name="RollingFile" class="ch.qos.logback.core.rolling.RollingFileAppender">
-        <file>${LOGS}/order-service-test.log</file>
-        <encoder class="ch.qos.logback.classic.encoder.PatternLayoutEncoder">
-            <pattern>%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} traceId=%X{traceId:-} spanId=%X{spanId:-} - %msg%n</pattern>
-        </encoder>
-        <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
-            <fileNamePattern>${LOGS}/archived/order-service-test-%d{yyyy-MM-dd}.%i.log</fileNamePattern>
-            <maxFileSize>10MB</maxFileSize>
-            <maxHistory>60</maxHistory>
-            <totalSizeCap>2GB</totalSizeCap>
-        </rollingPolicy>
-    </appender>
+    <springProfile name="local, dev, default">
 
-    <!-- Корневой логгер -->
-    <root level="info">
-        <appender-ref ref="RollingFile" />
-        <appender-ref ref="STDOUT" />
-    </root>
+        <appender name="CONSOLE_DEV" class="ch.qos.logback.core.ConsoleAppender">
+            <encoder>
+                <pattern>%d{yyyy-MM-dd HH:mm:ss.SSS} %highlight(%-5level) [%15.15t] %cyan(%-40.40logger{39}) [trace=%X{traceId:-},span=%X{spanId:-}] - %msg%n</pattern>
+            </encoder>
+        </appender>
 
-    <!-- Логгер для вашего пакета -->
-    <logger name="ru.otus.hw" level="info" additivity="false">
-        <appender-ref ref="RollingFile" />
-        <appender-ref ref="STDOUT" />
-    </logger>
+        <root level="INFO">
+            <appender-ref ref="CONSOLE_DEV"/>
+        </root>
+
+        <logger name="ru.otus.hw" level="DEBUG" additivity="false">
+            <appender-ref ref="CONSOLE_DEV"/>
+        </logger>
+
+        <logger name="org.springframework" level="WARN"/>
+        <logger name="org.hibernate" level="WARN"/>
+
+    </springProfile>
+
+    <springProfile name="prod, k8s, docker">
+
+        <appender name="CONSOLE_JSON" class="ch.qos.logback.core.ConsoleAppender">
+            <encoder class="net.logstash.logback.encoder.LogstashEncoder">
+
+                <customFields>{"app":"${applicationName}","env":"${activeProfile}"}</customFields>
+
+                <includeMdcKeyName>traceId</includeMdcKeyName>
+                <includeMdcKeyName>spanId</includeMdcKeyName>
+                <mdcKeyFieldName>traceId=trace_id</mdcKeyFieldName>
+                <mdcKeyFieldName>spanId=span_id</mdcKeyFieldName>
+
+                <throwableConverter class="net.logstash.logback.stacktrace.ShortenedThrowableConverter">
+                    <maxDepthPerThrowable>30</maxDepthPerThrowable>
+                    <maxLength>4096</maxLength>
+                    <rootCauseFirst>true</rootCauseFirst>
+                    <exclude>sun\.reflect\..*</exclude>
+                    <exclude>java\.lang\.reflect\..*</exclude>
+                    <exclude>org\.springframework\.cglib\..*</exclude>
+                </throwableConverter>
+
+                <timestampPattern>yyyy-MM-dd'T'HH:mm:ss.SSS'Z'</timestampPattern>
+                <includeCallerData>false</includeCallerData>
+                <shortenedLoggerNameLength>36</shortenedLoggerNameLength>
+
+            </encoder>
+        </appender>
+
+        <root level="INFO">
+            <appender-ref ref="CONSOLE_JSON"/>
+        </root>
+
+        <logger name="ru.otus.hw" level="INFO" additivity="false">
+            <appender-ref ref="CONSOLE_JSON"/>
+        </logger>
+
+        <logger name="org.springframework" level="WARN"/>
+        <logger name="org.hibernate" level="WARN"/>
+        <logger name="org.flywaydb" level="INFO"/>
+        <logger name="io.github.resilience4j" level="INFO"/>
+
+    </springProfile>
+
 </configuration>

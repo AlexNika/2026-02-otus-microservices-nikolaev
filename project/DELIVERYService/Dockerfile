@@ -7,7 +7,7 @@ COPY gradle ./gradle
 COPY COMMONDomain ./COMMONDomain
 COPY DELIVERYService ./DELIVERYService
 # Gradle 9 требует существования каталогов всех проектов из settings.gradle (собирать их не нужно)
-RUN mkdir -p USERService BILLINGService ORDERService NOTIFICATIONService WAREHOUSEService
+RUN mkdir -p AUTHService USERService BILLINGService ORDERService NOTIFICATIONService WAREHOUSEService DELIVERYService
 # Cache-mount /root/.gradle: дистрибутив gradle и зависимости кэшируются между сборками сервисов
 RUN --mount=type=cache,target=/root/.gradle sed -i 's/\r$//' gradlew && chmod +x gradlew && ./gradlew :DELIVERYService:bootJar -x test --no-daemon
 

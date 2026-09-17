@@ -1,6 +1,6 @@
 {
   "info": {
-    "_postman_id": "c1a7f3e0-52b4-4d8a-9e1f-hw9whfail0001",
+    "_postman_id": "c1a7f3e0-52b4-4d8a-9e1f-fpwhfail0001",
     "name": "OTUS - Microservices Final Project - Order saga FAILED (warehouse)",
     "description": "E2E сценарий Final Project: отказ на шаге WAREHOUSE.\n1. Товар со стоком 2, регистрация пользователя, депозит 100 руб.\n2. Заказ qty=5 при available=2 -> 409 INSUFFICIENT_STOCK.\n3. Сага компенсирует: refund возвращает баланс в 100, заказ сохранён со статусом FAILED.\n4. Резерва доставки нет (404), сток не тронут (available=2, reserved=0).\n5. NOTIFICATIONService получает событие FAILED через RabbitMQ (опрос до 10 попыток).\n\nЗапуск: из fp/ выполнить scripts/05-run-postman-local.ps1 (newman) — ключ X-Internal-API-Key читается из fp/.env и передаётся newman через --env-var internalApiKey. Вручную: newman run postman/local/<collection>.json -e postman/local/local.postman_environment.json --env-var internalApiKey=<ключ из fp/.env>.\n\nПредпосылки: поднята инфраструктура DEV/docker-compose.yaml (6x PostgreSQL + RabbitMQ), все 6 сервисов запущены локально с переменными из fp/.env (порты 8000-8005, INTERNAL_API_KEY), NOTIFICATIONService подписан на exchange notifications.events.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
@@ -259,6 +259,49 @@
       "response": []
     },
     {
+      "name": "00b - Admin login (save admin JWT)",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n    \"email\": \"admin@admin.com\",\n    \"password\": \"admin\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": "{{authServiceUrl}}/api/v1/auth/login",
+        "description": "AuthService: получение access/refresh пары токенов; accessToken сохраняется в переменную коллекции adminToken"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Status code is 200\", function () { pm.response.to.have.status(200); });",
+              "",
+              "var jsonData = pm.response.json();",
+              "pm.collectionVariables.set(\"adminToken\", jsonData.accessToken);",
+              "",
+              "pm.test(\"Access token issued (admin)\", function () {",
+              "    pm.expect(jsonData.accessToken).to.be.a(\"string\").and.not.empty;",
+              "    pm.expect(jsonData.tokenType).to.eql(\"Bearer\");",
+              "});",
+              "console.log(\"JWT saved to collection variable 'adminToken'\");"
+            ]
+          }
+        }
+      ]
+    },
+    {
       "name": "07a - Probe existing courier reservations",
       "event": [
         {
@@ -308,7 +351,17 @@
             "{{deliveryDate}}"
           ]
         },
-        "description": "Зонд занятости слотов на дату доставки для расчёта бесконфликтного courierCount."
+        "description": "Зонд занятости слотов на дату доставки для расчёта бесконфликтного courierCount.",
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{adminToken}}",
+              "type": "string"
+            }
+          ]
+        }
       },
       "response": []
     },
@@ -359,7 +412,17 @@
             "{{deliveryDate}}"
           ]
         },
-        "description": "Создание ёмкости курьеров на дату доставки: courierCount из зонда 07a (reservedMax + 1), создаются дефолтные слоты 10-12, 12-14, 14-16, 16-18."
+        "description": "Создание ёмкости курьеров на дату доставки: courierCount из зонда 07a (reservedMax + 1), создаются дефолтные слоты 10-12, 12-14, 14-16, 16-18.",
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{adminToken}}",
+              "type": "string"
+            }
+          ]
+        }
       },
       "response": []
     },
@@ -416,7 +479,17 @@
             "products"
           ]
         },
-        "description": "Создание товара в WAREHOUSEService."
+        "description": "Создание товара в WAREHOUSEService.",
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{adminToken}}",
+              "type": "string"
+            }
+          ]
+        }
       },
       "response": []
     },
@@ -443,7 +516,6 @@
               "",
               "pm.test(\"User data matches sent data\", function () {",
               "    var jsonData = pm.response.json();",
-              "    pm.expect(jsonData.userName).to.eql(pm.collectionVariables.get(\"userName\"));",
               "    pm.expect(jsonData.email).to.eql(pm.collectionVariables.get(\"userEmail\"));",
               "});"
             ],
@@ -469,9 +541,9 @@
           }
         },
         "url": {
-          "raw": "{{userServiceUrl}}/api/v1/auth/register",
+          "raw": "{{authServiceUrl}}/api/v1/auth/register",
           "host": [
-            "{{userServiceUrl}}"
+            "{{authServiceUrl}}"
           ],
           "path": [
             "api",
@@ -483,6 +555,49 @@
         "description": "Регистрация нового пользователя. USERService автоматически создаёт биллинг-аккаунт с балансом 0."
       },
       "response": []
+    },
+    {
+      "name": "09b - Login user (save JWT)",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n    \"email\": \"{{userEmail}}\",\n    \"password\": \"Password1!\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": "{{authServiceUrl}}/api/v1/auth/login",
+        "description": "AuthService: получение access/refresh пары токенов; accessToken сохраняется в переменную коллекции userToken"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Status code is 200\", function () { pm.response.to.have.status(200); });",
+              "",
+              "var jsonData = pm.response.json();",
+              "pm.collectionVariables.set(\"userToken\", jsonData.accessToken);",
+              "",
+              "pm.test(\"Access token issued (user)\", function () {",
+              "    pm.expect(jsonData.accessToken).to.be.a(\"string\").and.not.empty;",
+              "    pm.expect(jsonData.tokenType).to.eql(\"Bearer\");",
+              "});",
+              "console.log(\"JWT saved to collection variable 'userToken'\");"
+            ]
+          }
+        }
+      ]
     },
     {
       "name": "10 - Get billing account (Account auto-created with zero balance)",
@@ -540,7 +655,17 @@
             "{{userId}}"
           ]
         },
-        "description": "Получение биллинг-аккаунта пользователя по userId."
+        "description": "Получение биллинг-аккаунта пользователя по userId.",
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{userToken}}",
+              "type": "string"
+            }
+          ]
+        }
       },
       "response": []
     },
@@ -611,7 +736,17 @@
             "deposit"
           ]
         },
-        "description": "Пополнение баланса пользователя на 100 руб."
+        "description": "Пополнение баланса пользователя на 100 руб.",
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{userToken}}",
+              "type": "string"
+            }
+          ]
+        }
       },
       "response": []
     },
@@ -664,7 +799,17 @@
             "order"
           ]
         },
-        "description": "Создание заказа, ожидаемый отказ саги с кодом INSUFFICIENT_STOCK."
+        "description": "Создание заказа, ожидаемый отказ саги с кодом INSUFFICIENT_STOCK.",
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{userToken}}",
+              "type": "string"
+            }
+          ]
+        }
       },
       "response": []
     },
@@ -712,7 +857,17 @@
             "{{userId}}"
           ]
         },
-        "description": "Неудачный заказ сохраняется со статусом FAILED; берём его orderId для проверок компенсаций."
+        "description": "Неудачный заказ сохраняется со статусом FAILED; берём его orderId для проверок компенсаций.",
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{userToken}}",
+              "type": "string"
+            }
+          ]
+        }
       },
       "response": []
     },
@@ -754,7 +909,17 @@
             "{{userId}}"
           ]
         },
-        "description": "Получение биллинг-аккаунта пользователя по userId."
+        "description": "Получение биллинг-аккаунта пользователя по userId.",
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{userToken}}",
+              "type": "string"
+            }
+          ]
+        }
       },
       "response": []
     },
@@ -834,7 +999,17 @@
             "stocks"
           ]
         },
-        "description": "Проверка стока товара в WAREHOUSEService."
+        "description": "Проверка стока товара в WAREHOUSEService.",
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{userToken}}",
+              "type": "string"
+            }
+          ]
+        }
       },
       "response": []
     },
@@ -926,7 +1101,17 @@
             }
           ]
         },
-        "description": "Опрос NOTIFICATIONService до появления уведомления FAILED по данному заказу (до 10 попыток с паузой 1 с)."
+        "description": "Опрос NOTIFICATIONService до появления уведомления FAILED по данному заказу (до 10 попыток с паузой 1 с).",
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{userToken}}",
+              "type": "string"
+            }
+          ]
+        }
       },
       "response": []
     }
@@ -1026,6 +1211,21 @@
       "key": "pollAttempt",
       "value": "1",
       "type": "string"
+    },
+    {
+      "value": "http://localhost:8006",
+      "type": "default",
+      "key": "authServiceUrl"
+    },
+    {
+      "value": "",
+      "type": "default",
+      "key": "adminToken"
+    },
+    {
+      "value": "",
+      "type": "default",
+      "key": "userToken"
     }
   ]
 }

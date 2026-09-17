@@ -79,7 +79,7 @@ public class InternalOrderResource {
     }
 
     @Operation(summary = "Withdrawal status for order (internal)",
-            description = "Read-only check whether a withdrawal exists for the order. No side effects — "
+            description = "Read-only check whether a withdrawal exists for the order. No side effects - "
                     + "used by ORDERService saga recovery to restore the actual state.")
     @ApiResponses(value = {
             @ApiResponse(responseCode = "200", description = "Withdrawal status",

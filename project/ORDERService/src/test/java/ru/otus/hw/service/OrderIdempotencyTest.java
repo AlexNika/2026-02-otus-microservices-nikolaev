@@ -105,11 +105,17 @@ class OrderIdempotencyTest {
     @Mock
     private NotificationEventPublisher notificationEventPublisher;
 
+    @Mock
+    private ru.otus.hw.metrics.SagaMetrics sagaMetrics;
+
+    @Mock
+    private ru.otus.hw.metrics.OrderBusinessMetrics orderBusinessMetrics;
+
     @InjectMocks
     private OrderServiceImpl orderService;
 
     private OrderCreateDto createDto() {
-        return new OrderCreateDto(USER_ID, PRICE, "test order", PRODUCT_ID, QUANTITY,
+        return new OrderCreateDto(PRICE, "test order", PRODUCT_ID, QUANTITY,
                 DELIVERY_DATE, SLOT_START, SLOT_END);
     }
 
@@ -170,13 +176,13 @@ class OrderIdempotencyTest {
         when(idempotencyService.requestHash(createDto())).thenReturn(REQUEST_HASH);
         when(idempotencyService.readStoredResponse(entry)).thenReturn(storedResponse);
 
-        OrderCreateResult result = orderService.createOrder(createDto(), IDEMPOTENCY_KEY);
+        OrderCreateResult result = orderService.createOrder(createDto(), USER_ID, IDEMPOTENCY_KEY);
 
         assertThat(result.kind()).isEqualTo(OrderCreateResult.Kind.REPLAYED_COMPLETED);
         assertThat(result.order()).isEqualTo(storedResponse);
         assertThat(result.order().orderStatus()).isEqualTo(Order.OrderStatus.PLACED);
         verify(orderRepository, never()).save(any());
-        verify(orderCreationService, never()).createOrderWithKey(any(), any(), any());
+        verify(orderCreationService, never()).createOrderWithKey(any(), any(), any(), any());
         verify(billingServiceClient, never()).withdrawFunds(anyLong(), any(), anyLong());
     }
 
@@ -194,7 +200,7 @@ class OrderIdempotencyTest {
         when(idempotencyService.requestHash(createDto())).thenReturn(OTHER_REQUEST_HASH);
 
         IdempotencyConflictException ex = assertThrows(IdempotencyConflictException.class,
-                () -> orderService.createOrder(createDto(), IDEMPOTENCY_KEY));
+                () -> orderService.createOrder(createDto(), USER_ID, IDEMPOTENCY_KEY));
 
         assertThat(ex.getCode()).isEqualTo(ErrorCodes.IDEMPOTENCY_KEY_CONFLICT);
         verify(orderRepository, never()).save(any());
@@ -215,7 +221,7 @@ class OrderIdempotencyTest {
         when(idempotencyService.requestHash(createDto())).thenReturn(REQUEST_HASH);
 
         assertThrows(IdempotencyConflictException.class,
-                () -> orderService.createOrder(createDto(), IDEMPOTENCY_KEY));
+                () -> orderService.createOrder(createDto(), USER_ID, IDEMPOTENCY_KEY));
 
         verify(orderRepository, never()).save(any());
     }
@@ -238,7 +244,7 @@ class OrderIdempotencyTest {
                 "test order", PRODUCT_ID, QUANTITY, DELIVERY_DATE, SLOT_START, SLOT_END,
                 Order.OrderStatus.FAILED));
 
-        OrderCreateResult result = orderService.createOrder(createDto(), IDEMPOTENCY_KEY);
+        OrderCreateResult result = orderService.createOrder(createDto(), USER_ID, IDEMPOTENCY_KEY);
 
         assertThat(result.kind()).isEqualTo(OrderCreateResult.Kind.REPLAYED_CURRENT);
         assertThat(result.order().orderStatus()).isEqualTo(Order.OrderStatus.FAILED);
@@ -264,7 +270,7 @@ class OrderIdempotencyTest {
                 "test order", PRODUCT_ID, QUANTITY, DELIVERY_DATE, SLOT_START, SLOT_END,
                 Order.OrderStatus.PROCESSING));
 
-        OrderCreateResult result = orderService.createOrder(createDto(), IDEMPOTENCY_KEY);
+        OrderCreateResult result = orderService.createOrder(createDto(), USER_ID, IDEMPOTENCY_KEY);
 
         assertThat(result.kind()).isEqualTo(OrderCreateResult.Kind.REPLAYED_CURRENT);
         assertThat(result.order().orderStatus()).isEqualTo(Order.OrderStatus.PROCESSING);
@@ -277,10 +283,10 @@ class OrderIdempotencyTest {
         stubSuccessfulSaga();
         when(idempotencyService.find(IDEMPOTENCY_KEY)).thenReturn(Optional.empty());
         when(idempotencyService.requestHash(createDto())).thenReturn(REQUEST_HASH);
-        when(orderCreationService.createOrderWithKey(createDto(), IDEMPOTENCY_KEY, REQUEST_HASH))
+        when(orderCreationService.createOrderWithKey(createDto(), USER_ID, IDEMPOTENCY_KEY, REQUEST_HASH))
                 .thenReturn(orderWithStatus(Order.OrderStatus.PENDING));
 
-        OrderCreateResult result = orderService.createOrder(createDto(), IDEMPOTENCY_KEY);
+        OrderCreateResult result = orderService.createOrder(createDto(), USER_ID, IDEMPOTENCY_KEY);
 
         assertThat(result.kind()).isEqualTo(OrderCreateResult.Kind.CREATED);
         assertThat(result.order().orderStatus()).isEqualTo(Order.OrderStatus.PLACED);
@@ -308,12 +314,12 @@ class OrderIdempotencyTest {
                         .build()));
         when(idempotencyService.find(IDEMPOTENCY_KEY)).thenReturn(Optional.empty());
         when(idempotencyService.requestHash(createDto())).thenReturn(REQUEST_HASH);
-        when(orderCreationService.createOrderWithKey(createDto(), IDEMPOTENCY_KEY, REQUEST_HASH))
+        when(orderCreationService.createOrderWithKey(createDto(), USER_ID, IDEMPOTENCY_KEY, REQUEST_HASH))
                 .thenReturn(orderWithStatus(Order.OrderStatus.PENDING));
         org.mockito.Mockito.doThrow(new BillingServiceException("Insufficient funds"))
                 .when(billingServiceClient).withdrawFunds(USER_ID, PRICE, ORDER_ID);
 
-        assertThrows(BillingServiceException.class, () -> orderService.createOrder(createDto(), IDEMPOTENCY_KEY));
+        assertThrows(BillingServiceException.class, () -> orderService.createOrder(createDto(), USER_ID, IDEMPOTENCY_KEY));
 
         verify(idempotencyService).recordSagaStatus(IDEMPOTENCY_KEY, SagaStatus.COMPENSATED);
         verify(idempotencyService, never()).recordSuccess(any(), any());
@@ -337,11 +343,11 @@ class OrderIdempotencyTest {
                 .thenReturn(Optional.empty())
                 .thenReturn(Optional.of(concurrentEntry));
         when(idempotencyService.requestHash(createDto())).thenReturn(REQUEST_HASH);
-        when(orderCreationService.createOrderWithKey(createDto(), IDEMPOTENCY_KEY, REQUEST_HASH))
+        when(orderCreationService.createOrderWithKey(createDto(), USER_ID, IDEMPOTENCY_KEY, REQUEST_HASH))
                 .thenThrow(new DataIntegrityViolationException("duplicate key value violates unique constraint"));
         when(idempotencyService.readStoredResponse(concurrentEntry)).thenReturn(storedResponse);
 
-        OrderCreateResult result = orderService.createOrder(createDto(), IDEMPOTENCY_KEY);
+        OrderCreateResult result = orderService.createOrder(createDto(), USER_ID, IDEMPOTENCY_KEY);
 
         assertThat(result.kind()).isEqualTo(OrderCreateResult.Kind.REPLAYED_COMPLETED);
         assertThat(result.order()).isEqualTo(storedResponse);
@@ -354,12 +360,12 @@ class OrderIdempotencyTest {
         stubSuccessfulSaga();
         when(mapper.toEntity(any(OrderCreateDto.class))).thenReturn(orderWithStatus(Order.OrderStatus.PENDING));
 
-        OrderResponseDto response = orderService.createOrder(createDto());
+        OrderResponseDto response = orderService.createOrder(createDto(), USER_ID);
 
         assertThat(response.orderStatus()).isEqualTo(Order.OrderStatus.PLACED);
         verify(idempotencyService, never()).find(any());
         verify(idempotencyService, never()).recordSuccess(any(), any());
-        verify(orderCreationService, never()).createOrderWithKey(any(), any(), any());
+        verify(orderCreationService, never()).createOrderWithKey(any(), any(), any(), any());
         verify(billingServiceClient).withdrawFunds(USER_ID, PRICE, ORDER_ID);
     }
 }

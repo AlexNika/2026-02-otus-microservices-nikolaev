@@ -11,13 +11,17 @@ import org.springframework.context.annotation.Configuration;
 @Setter
 @Configuration
 @ConfigurationProperties(prefix = "app")
-public class AppProperties implements InternalApiKeyConfig {
+public class AppProperties implements InternalApiKeyConfig,  AuthServiceUrlConfig {
 
     @Getter(onMethod = @__(@Override))
     private String internalApiKey;
 
+    @Getter(onMethod = @__(@Override))
+    private String authServiceUrl;
+
     @PostConstruct
     public void logProperties() {
         log.debug("Loaded InternalApiKey: InternalApiKey={}", internalApiKey == null ? "<not set>" : "***");
+        log.debug("Loaded AuthServiceUrl: authServiceUrl={}", authServiceUrl);
     }
 }

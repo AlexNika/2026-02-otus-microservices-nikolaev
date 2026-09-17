@@ -1,0 +1,80 @@
+# yaml-language-server: $schema=https://json.schemastore.org/spring-configuration-metadata.json
+spring:
+  profiles:
+    active: dev
+  application:
+    name: AUTHService
+  flyway:
+    enabled: ${SPRING_FLYWAY_ENABLED:false}
+  datasource:
+    url: ${SPRING_DATASOURCE_URL_AUTH_SERVICE:jdbc:postgresql://localhost:5438/fpdb_auth_service}
+    username: ${SPRING_DATASOURCE_USERNAME_AUTH_SERVICE:fpuser_auth_service}
+    password: ${SPRING_DATASOURCE_PASSWORD_AUTH_SERVICE:fppass_auth_service}
+    driver-class-name: org.postgresql.Driver
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+  rabbitmq:
+    host: ${RABBIT_ADDRESSES:localhost}
+    port: 5672
+    username: ${RABBIT_USERNAME:guest}
+    password: ${RABBIT_PASSWORD:guest}
+    publisher-confirm-type: correlated
+    publisher-returns: true
+
+server:
+  port: ${SERVER_PORT_AUTH:8006}
+
+management:
+  otlp:
+    tracing:
+      endpoint: ${MANAGEMENT_OTLP_TRACING_ENDPOINT:http://localhost:4318/v1/traces}
+  tracing:
+    sampling:
+      probability: ${MANAGEMENT_TRACING_SAMPLING_PROBABILITY:1.0}
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      show-details: always
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus,rabbitmq
+  metrics:
+    distribution:
+      percentiles-histogram:
+        http.server.requests: true
+      percentiles:
+        http.server.requests: 0.5, 0.95, 0.99
+    tags:
+      application: ${spring.application.name}
+  prometheus:
+    metrics:
+      export:
+        enabled: true
+
+logging:
+  config: classpath:logback-spring.xml
+  level:
+    root: INFO
+    ru.otus.hw: DEBUG
+    org.springframework.security: WARN
+
+app:
+  security:
+    jwt-secret-key: ${JWT_SECRET_KEY:}
+    jwt-access-expiration-time: ${JWT_ACCESS_EXPIRATION:900000}
+    bcrypt-iterations: ${BCRYPT_STRENGTH:12}
+  refresh:
+    ttl-days: ${JWT_REFRESH_TTL_DAYS:30}
+  internal-api-key: ${INTERNAL_API_KEY}
+  rabbitmq:
+    producer:
+      exchange-name: users.events
+      routing-key: user.created
+  outbox:
+    publish-delay: ${OUTBOX_PUBLISH_DELAY:1000}
+    cleanup-interval: ${OUTBOX_CLEANUP_INTERVAL:1h}
+    retention: ${OUTBOX_RETENTION:7d}

@@ -3,6 +3,7 @@ package ru.otus.hw.service;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.jspecify.annotations.NonNull;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -21,6 +22,7 @@ import ru.otus.hw.config.properties.RabbitMQConfig;
 import ru.otus.hw.models.OutboxEvent;
 import ru.otus.hw.models.OutboxEvent.OutboxStatus;
 import ru.otus.hw.repository.OutboxEventRepository;
+import ru.otus.hw.tracing.W3CTraceContextAdapter;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -69,6 +71,11 @@ class OutboxPublisherTest {
     @Mock
     private RabbitMQConfig rabbitMQConfig;
 
+    @Mock
+    private W3CTraceContextAdapter traceContextAdapter;
+
+    private SimpleMeterRegistry meterRegistry;
+
     private OutboxPublisher outboxPublisher;
 
     @BeforeEach
@@ -76,7 +83,10 @@ class OutboxPublisherTest {
         ObjectMapper objectMapper = new ObjectMapper()
                 .registerModule(new JavaTimeModule())
                 .disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
-        outboxPublisher = new OutboxPublisher(outboxEventRepository, rabbitTemplate, rabbitMQConfig, objectMapper);
+        meterRegistry = new SimpleMeterRegistry();
+        outboxPublisher = new OutboxPublisher(outboxEventRepository, rabbitTemplate, rabbitMQConfig, objectMapper,
+                traceContextAdapter, meterRegistry);
+        outboxPublisher.registerDeliveryCallbacks();
         when(rabbitMQConfig.getExchangeName()).thenReturn(EXCHANGE_NAME);
         when(rabbitMQConfig.getRoutingKey()).thenReturn(ROUTING_KEY);
     }
@@ -208,5 +218,57 @@ class OutboxPublisherTest {
         outboxPublisher.requeueByEventId(EVENT_ID, "nack: test");
 
         verify(outboxEventRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("метрики outbox: published-счётчик после успешной публикации и pending-датчик")
+    void shouldTrackPublishedCounterAndPendingGauge() {
+        OutboxEvent event = outboxEvent(VALID_PAYLOAD, OutboxStatus.NEW, 0);
+        when(outboxEventRepository.findByStatusOrderByCreatedAtAsc(OutboxStatus.NEW)).thenReturn(List.of(event));
+        when(outboxEventRepository.save(any(OutboxEvent.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        outboxPublisher.publishPendingEvents();
+
+        assertThat(meterRegistry.find("outbox.events.published").counter().count()).isEqualTo(1.0);
+        assertThat(meterRegistry.find("outbox.events.failed").counter().count()).isZero();
+        assertThat(meterRegistry.find("outbox.events.pending").gauge().value()).isEqualTo(1.0);
+    }
+
+    @Test
+    @DisplayName("метрики outbox: pending-датчик обнуляется на пустой вычитке")
+    void shouldResetPendingGaugeWhenOutboxIsEmpty() {
+        when(outboxEventRepository.findByStatusOrderByCreatedAtAsc(OutboxStatus.NEW)).thenReturn(List.of());
+
+        outboxPublisher.publishPendingEvents();
+
+        assertThat(meterRegistry.find("outbox.events.pending").gauge().value()).isZero();
+    }
+
+    @Test
+    @DisplayName("метрики outbox: failed-счётчик после исчерпания попыток")
+    void shouldTrackFailedCounterAfterAttemptsExhausted() {
+        OutboxEvent event = outboxEvent(VALID_PAYLOAD, OutboxStatus.NEW, 4);
+        when(outboxEventRepository.findByStatusOrderByCreatedAtAsc(OutboxStatus.NEW)).thenReturn(List.of(event));
+        when(outboxEventRepository.save(any(OutboxEvent.class))).thenAnswer(inv -> inv.getArgument(0));
+        doThrow(new AmqpException("broker unavailable"))
+                .when(rabbitTemplate).convertAndSend(anyString(), anyString(), any(),
+                        any(MessagePostProcessor.class), any(CorrelationData.class));
+
+        outboxPublisher.publishPendingEvents();
+
+        assertThat(meterRegistry.find("outbox.events.failed").counter().count()).isEqualTo(1.0);
+        assertThat(meterRegistry.find("outbox.events.published").counter().count()).isZero();
+    }
+
+    @Test
+    @DisplayName("метрики outbox: requeued-счётчик при возврате события в NEW")
+    void shouldTrackRequeuedCounter() {
+        OutboxEvent event = outboxEvent(VALID_PAYLOAD, OutboxStatus.SENT, 0);
+        when(outboxEventRepository.findByEventId(EVENT_ID)).thenReturn(Optional.of(event));
+        when(outboxEventRepository.save(any(OutboxEvent.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        outboxPublisher.requeueByEventId(EVENT_ID, "nack: test");
+
+        assertThat(meterRegistry.find("outbox.events.requeued").counter().count()).isEqualTo(1.0);
     }
 }

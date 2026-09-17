@@ -1,5 +1,6 @@
 package ru.otus.hw.service;
 
+import io.micrometer.core.instrument.Timer;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.jspecify.annotations.NonNull;
@@ -29,6 +30,8 @@ import ru.otus.hw.models.Order;
 import ru.otus.hw.models.OrderSagaState;
 import ru.otus.hw.models.OrderSagaState.SagaStatus;
 import ru.otus.hw.models.OrderSagaState.SagaStep;
+import ru.otus.hw.metrics.OrderBusinessMetrics;
+import ru.otus.hw.metrics.SagaMetrics;
 import ru.otus.hw.producer.NotificationEventPublisher;
 import ru.otus.hw.repository.OrderRepository;
 import ru.otus.hw.repository.OrderSagaStateRepository;
@@ -60,7 +63,6 @@ import java.util.function.Consumer;
 @Service
 @RequiredArgsConstructor
 public class OrderServiceImpl implements OrderService {
-
     private static final int MAX_FAILURE_REASON_LENGTH = 2048;
 
     private final OrderRepository orderRepository;
@@ -82,6 +84,10 @@ public class OrderServiceImpl implements OrderService {
     private final OrderCreationService orderCreationService;
 
     private final TransactionTemplate transactionTemplate;
+
+    private final SagaMetrics sagaMetrics;
+
+    private final OrderBusinessMetrics orderBusinessMetrics;
 
     @Override
     @Transactional(readOnly = true)
@@ -136,8 +142,8 @@ public class OrderServiceImpl implements OrderService {
      * обратная совместимость).
      */
     @Override
-    public OrderResponseDto createOrder(@NonNull OrderCreateDto orderCreateDto) {
-        return createOrder(orderCreateDto, null).order();
+    public OrderResponseDto createOrder(@NonNull OrderCreateDto orderCreateDto, @NonNull Long userId) {
+        return createOrder(orderCreateDto, userId, null).order();
     }
 
     /**
@@ -145,45 +151,50 @@ public class OrderServiceImpl implements OrderService {
      * Не выполняется в единой транзакции: внешние вызовы не должны удерживать транзакцию БД,
      * поэтому каждое сохранение - отдельная короткая транзакция репозитория.
      *
+     * <p>{@code userId} берётся из JWT-принципала, а не из тела запроса: клиент не может
+     * создать заказ от чужого имени.
+     *
      * <p>При заданном {@code idempotencyKey} повтор того же payload'а никогда не создаёт второй
      * заказ: ключ резервируется в одной транзакции с первым сохранением заказа, успешный ответ
      * сохраняется для replay (201), при провале саги ключ остаётся и повтор возвращает текущее
      * состояние заказа (200). Конфликт payload'а - 409 IDEMPOTENCY_KEY_CONFLICT.
      */
     @Override
-    public OrderCreateResult createOrder(@NonNull OrderCreateDto orderCreateDto, UUID idempotencyKey) {
+    public OrderCreateResult createOrder(@NonNull OrderCreateDto orderCreateDto, @NonNull Long userId,
+                                         UUID idempotencyKey) {
         log.info("Creating order for userId: {}, price: {}, productId: {}, quantity: {}, delivery: {} {}-{}, "
                         + "idempotencyKey: {}",
-                orderCreateDto.userId(), orderCreateDto.price(), orderCreateDto.productId(),
+                userId, orderCreateDto.price(), orderCreateDto.productId(),
                 orderCreateDto.quantity(), orderCreateDto.deliveryDate(),
                 orderCreateDto.slotStart(), orderCreateDto.slotEnd(), idempotencyKey);
 
         if (idempotencyKey != null) {
             Optional<IdempotencyKey> existing = idempotencyService.find(idempotencyKey);
             if (existing.isPresent()) {
-                return replayExisting(existing.get(), orderCreateDto);
+                return replayExisting(existing.get(), orderCreateDto, userId);
             }
         }
 
         Order order;
         if (idempotencyKey != null) {
             try {
-                order = startOrderWithKey(orderCreateDto, idempotencyKey);
+                order = startOrderWithKey(orderCreateDto, userId, idempotencyKey);
             } catch (DataIntegrityViolationException duplicate) {
                 log.info("Idempotency-Key {} was concurrently reserved, switching to replay", idempotencyKey);
                 IdempotencyKey concurrent = idempotencyService.find(idempotencyKey).orElseThrow(() -> duplicate);
-                return replayExisting(concurrent, orderCreateDto);
+                return replayExisting(concurrent, orderCreateDto, userId);
             }
         } else {
-            order = startOrderWithoutKey(orderCreateDto);
+            order = startOrderWithoutKey(orderCreateDto, userId);
         }
 
         OrderResponseDto response = runSaga(order, idempotencyKey);
         return new OrderCreateResult(response, OrderCreateResult.Kind.CREATED);
     }
 
-    private @NonNull Order startOrderWithoutKey(@NonNull OrderCreateDto orderCreateDto) {
+    private @NonNull Order startOrderWithoutKey(@NonNull OrderCreateDto orderCreateDto, @NonNull Long userId) {
         Order order = mapper.toEntity(orderCreateDto);
+        order.setUserId(userId);
         order.setOrderStatus(Order.OrderStatus.PENDING);
         order = orderRepository.save(order);
         log.info("Order created with PENDING status, id: {}", order.getId());
@@ -197,9 +208,10 @@ public class OrderServiceImpl implements OrderService {
         return markProcessing(order);
     }
 
-    private @NonNull Order startOrderWithKey(@NonNull OrderCreateDto orderCreateDto, @NonNull UUID idempotencyKey) {
+    private @NonNull Order startOrderWithKey(@NonNull OrderCreateDto orderCreateDto, @NonNull Long userId,
+                                             @NonNull UUID idempotencyKey) {
         String requestHash = idempotencyService.requestHash(orderCreateDto);
-        Order order = orderCreationService.createOrderWithKey(orderCreateDto, idempotencyKey, requestHash);
+        Order order = orderCreationService.createOrderWithKey(orderCreateDto, userId, idempotencyKey, requestHash);
         log.info("Saga started for order id: {}", order.getId());
 
         return markProcessing(order);
@@ -213,10 +225,11 @@ public class OrderServiceImpl implements OrderService {
     }
 
     private @NonNull OrderCreateResult replayExisting(@NonNull IdempotencyKey entry,
-                                                      @NonNull OrderCreateDto orderCreateDto) {
+                                                      @NonNull OrderCreateDto orderCreateDto,
+                                                      @NonNull Long userId) {
         String requestHash = idempotencyService.requestHash(orderCreateDto);
         boolean samePayload = Objects.equals(entry.getRequestHash(), requestHash)
-                && Objects.equals(entry.getUserId(), orderCreateDto.userId());
+                && Objects.equals(entry.getUserId(), userId);
         if (!samePayload) {
             log.warn("Idempotency-Key conflict: key {} already used with a different payload/userId",
                     entry.getIdempotencyKey());
@@ -252,24 +265,25 @@ public class OrderServiceImpl implements OrderService {
         boolean warehouseReserved = false;
         boolean deliveryReserved = false;
         SagaStep currentStep = SagaStep.BILLING_WITHDRAW;
+        Timer.Sample sagaSample = sagaMetrics.startSaga();
         try {
-            SagaStepRetrier.executeWithRetry("BILLING_WITHDRAW",
-                    () -> billingServiceClient.withdrawFunds(userId, price, orderId));
+            executeStep(SagaStep.BILLING_WITHDRAW, () ->
+                    billingServiceClient.withdrawFunds(userId, price, orderId));
             billingReserved = true;
             log.info("BillingService withdrawal successful for order id: {}", orderId);
             transitionSaga(orderId, SagaStatus.BILLING_RESERVED);
 
             currentStep = SagaStep.WAREHOUSE_RESERVE;
-            SagaStepRetrier.executeWithRetry("WAREHOUSE_RESERVE",
-                    () -> warehouseServiceClient.reserve(orderId, productId, quantity,
+            executeStep(SagaStep.WAREHOUSE_RESERVE, () ->
+                    warehouseServiceClient.reserve(orderId, productId, quantity,
                             warehouseIdempotencyKey(orderId, productId)));
             warehouseReserved = true;
             log.info("WarehouseService reservation successful for order id: {}", orderId);
             transitionSaga(orderId, SagaStatus.WAREHOUSE_RESERVED);
 
             currentStep = SagaStep.DELIVERY_RESERVE;
-            SagaStepRetrier.executeWithRetry("DELIVERY_RESERVE",
-                    () -> deliveryServiceClient.reserve(orderId, deliveryDate, slotStart, slotEnd));
+            executeStep(SagaStep.DELIVERY_RESERVE, () ->
+                    deliveryServiceClient.reserve(orderId, userId, deliveryDate, slotStart, slotEnd));
             deliveryReserved = true;
             log.info("DeliveryService reservation successful for order id: {}", orderId);
             transitionSaga(orderId, SagaStatus.DELIVERY_RESERVED);
@@ -283,13 +297,13 @@ public class OrderServiceImpl implements OrderService {
             order.setOrderStatus(Order.OrderStatus.PLACED);
             order = finalizeOrderWithNotification(order, "Order placed successfully. Payment confirmed.");
             log.info("Order status changed to PLACED, id: {}", order.getId());
+            sagaMetrics.sagaCompleted(SagaMetrics.OUTCOME_PLACED, sagaSample);
 
             OrderResponseDto response = mapper.toOrderResponseDto(order);
             if (idempotencyKey != null) {
                 idempotencyService.recordSuccess(idempotencyKey, response);
             }
             return response;
-
         } catch (Exception failure) {
             SagaStatus finalStatus = compensate(order, currentStep, failure,
                     deliveryReserved, warehouseReserved, billingReserved);
@@ -297,6 +311,10 @@ public class OrderServiceImpl implements OrderService {
             order.setOrderStatus(Order.OrderStatus.FAILED);
             order = finalizeOrderWithNotification(order, "Order processing failed: " + failure.getMessage());
             log.info("Order status changed to FAILED, id: {}", order.getId());
+            sagaMetrics.sagaCompleted(finalStatus == SagaStatus.COMPENSATED
+                            ? SagaMetrics.OUTCOME_COMPENSATED
+                            : SagaMetrics.OUTCOME_COMPENSATION_FAILED,
+                    sagaSample);
 
             if (idempotencyKey != null) {
                 idempotencyService.recordSagaStatus(idempotencyKey, finalStatus);
@@ -307,39 +325,68 @@ public class OrderServiceImpl implements OrderService {
     }
 
     /**
-     * Confirm брони склада с ретраями на транзитные ошибки. Если после исчерпания ретраев
-     * confirm так и не ответил успехом (таймаут/потеря ответа), состояние брони уточняется
-     * read-запросом: бронь может уже быть CONFIRMED на стороне склада, тогда компенсация не нужна -
-     * сага продолжается.
+     * Шаг саги с метриками: попытка (успех/отказ с машинным кодом ошибки) и длительность шага.
+     * Ретраи транзитных сбоев выполняются на стороне клиента (Resilience4j). Отказ
+     * пробрасывается без изменений - компенсацию запускает {@link #runSaga}.
      */
-    private void confirmWarehouse(@NonNull Long orderId) {
+    private void executeStep(@NonNull SagaStep step, @NonNull Runnable stepAction) {
+        Timer.Sample stepSample = sagaMetrics.startStep();
         try {
-            SagaStepRetrier.executeWithRetry("WAREHOUSE_CONFIRM", () ->
-                    warehouseServiceClient.confirm(orderId));
+            stepAction.run();
+            sagaMetrics.stepAttemptSuccess(step);
         } catch (RuntimeException e) {
-            if (isWarehouseReservationConfirmed(orderId)) {
-                log.warn("WAREHOUSE_CONFIRM failed after retries, but reservation is CONFIRMED "
-                        + "for order id: {} — proceeding without compensation", orderId);
-                return;
-            }
+            sagaMetrics.stepAttemptFailure(step, e);
             throw e;
+        } finally {
+            sagaMetrics.stopStep(stepSample, step);
         }
     }
 
     /**
-     * Confirm брони доставки с ретраями и уточнением состояния брони при неудаче
+     * Confirm брони склада. Ретраи транзитных ошибок выполняет клиент (Resilience4j).
+     * Если после исчерпания ретраев confirm так и не ответил успехом (таймаут/потеря ответа),
+     * состояние брони уточняется read-запросом: бронь может уже быть CONFIRMED на стороне
+     * склада, тогда компенсация не нужна - сага продолжается.
+     */
+    private void confirmWarehouse(@NonNull Long orderId) {
+        Timer.Sample stepSample = sagaMetrics.startStep();
+        try {
+            warehouseServiceClient.confirm(orderId);
+            sagaMetrics.stepAttemptSuccess(SagaStep.WAREHOUSE_CONFIRM);
+        } catch (RuntimeException e) {
+            if (isWarehouseReservationConfirmed(orderId)) {
+                log.warn("WAREHOUSE_CONFIRM failed after retries, but reservation is CONFIRMED "
+                        + "for order id: {} - proceeding without compensation", orderId);
+                sagaMetrics.stepAttemptSuccess(SagaStep.WAREHOUSE_CONFIRM);
+                return;
+            }
+            sagaMetrics.stepAttemptFailure(SagaStep.WAREHOUSE_CONFIRM, e);
+            throw e;
+        } finally {
+            sagaMetrics.stopStep(stepSample, SagaStep.WAREHOUSE_CONFIRM);
+        }
+    }
+
+    /**
+     * Confirm брони доставки с уточнением состояния брони при неудаче
      * (см. {@link #confirmWarehouse}).
      */
     private void confirmDelivery(@NonNull Long orderId) {
+        Timer.Sample stepSample = sagaMetrics.startStep();
         try {
-            SagaStepRetrier.executeWithRetry("DELIVERY_CONFIRM", () -> deliveryServiceClient.confirm(orderId));
+            deliveryServiceClient.confirm(orderId);
+            sagaMetrics.stepAttemptSuccess(SagaStep.DELIVERY_CONFIRM);
         } catch (RuntimeException e) {
             if (isDeliveryReservationConfirmed(orderId)) {
                 log.warn("DELIVERY_CONFIRM failed after retries, but reservation is CONFIRMED "
-                        + "for order id: {} — proceeding without compensation", orderId);
+                        + "for order id: {} - proceeding without compensation", orderId);
+                sagaMetrics.stepAttemptSuccess(SagaStep.DELIVERY_CONFIRM);
                 return;
             }
+            sagaMetrics.stepAttemptFailure(SagaStep.DELIVERY_CONFIRM, e);
             throw e;
+        } finally {
+            sagaMetrics.stopStep(stepSample, SagaStep.DELIVERY_CONFIRM);
         }
     }
 
@@ -407,6 +454,7 @@ public class OrderServiceImpl implements OrderService {
         order.setOrderStatus(Order.OrderStatus.CANCELED);
         order = orderRepository.save(order);
         log.info("Order status changed to CANCELED, id: {}", orderId);
+        orderBusinessMetrics.orderTerminal(Order.OrderStatus.CANCELED, order.getPrice());
 
         return mapper.toOrderResponseDto(order);
     }
@@ -414,7 +462,7 @@ public class OrderServiceImpl implements OrderService {
     private @NonNull SagaStatus compensate(@NonNull Order order, @NonNull SagaStep failedStep,
                                            @NonNull Exception failure, boolean deliveryReserved,
                                            boolean warehouseReserved, boolean billingReserved) {
-        log.error("Saga step {} failed for order id: {}, starting compensation", failedStep, order.getId(), failure);
+        log.error("Saga step {} failed for order id: {}, starting compensation. Reason: {}", failedStep, order.getId(), failure.getMessage());
 
         updateSaga(order.getId(), saga -> {
             saga.setSagaStatus(SagaStatus.COMPENSATING);
@@ -427,30 +475,33 @@ public class OrderServiceImpl implements OrderService {
         if (deliveryReserved) {
             try {
                 deliveryServiceClient.cancel(order.getId());
+                sagaMetrics.compensation(SagaStep.DELIVERY_CANCEL);
                 log.info("Compensation: delivery reservation cancelled for order id: {}", order.getId());
             } catch (Exception e) {
                 compensationFailed = true;
-                log.error("Compensation failed: delivery cancel for order id: {}", order.getId(), e);
+                log.error("Compensation failed: delivery cancel for order id: {}. Reason: {}", order.getId(), e.getMessage());
             }
         }
 
         if (warehouseReserved) {
             try {
                 warehouseServiceClient.cancel(order.getId());
+                sagaMetrics.compensation(SagaStep.WAREHOUSE_CANCEL);
                 log.info("Compensation: warehouse reservation cancelled for order id: {}", order.getId());
             } catch (Exception e) {
                 compensationFailed = true;
-                log.error("Compensation failed: warehouse cancel for order id: {}", order.getId(), e);
+                log.error("Compensation failed: warehouse cancel for order id: {}. Reason: {}", order.getId(), e.getMessage());
             }
         }
 
         if (billingReserved) {
             try {
                 billingServiceClient.refundFunds(order.getUserId(), order.getPrice(), order.getId());
+                sagaMetrics.compensation(SagaStep.BILLING_REFUND);
                 log.info("Compensation: billing refund done for order id: {}", order.getId());
             } catch (Exception e) {
                 compensationFailed = true;
-                log.error("Compensation failed: billing refund for order id: {}", order.getId(), e);
+                log.error("Compensation failed: billing refund for order id: {}. Reason: {}", order.getId(), e.getMessage());
             }
         }
 
@@ -532,7 +583,9 @@ public class OrderServiceImpl implements OrderService {
             notificationEventPublisher.send(buildNotificationEvent(saved, message));
             return saved;
         });
-        return Objects.requireNonNull(savedOrder, "Order save with notification event returned null");
+        Order saved = Objects.requireNonNull(savedOrder, "Order save with notification event returned null");
+        orderBusinessMetrics.orderTerminal(saved.getOrderStatus(), saved.getPrice());
+        return saved;
     }
 
     private NotificationEvent buildNotificationEvent(@NonNull Order order, String message) {

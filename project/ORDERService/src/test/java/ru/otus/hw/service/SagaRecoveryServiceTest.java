@@ -87,6 +87,15 @@ class SagaRecoveryServiceTest {
     @Mock
     private TransactionTemplate transactionTemplate;
 
+    @Mock
+    private ru.otus.hw.metrics.SagaMetrics sagaMetrics;
+
+    @Mock
+    private ru.otus.hw.metrics.OrderBusinessMetrics orderBusinessMetrics;
+
+    @Mock
+    private ru.otus.hw.tracing.W3CTraceContextAdapter traceContextAdapter;
+
     @InjectMocks
     private SagaRecoveryService sagaRecoveryService;
 

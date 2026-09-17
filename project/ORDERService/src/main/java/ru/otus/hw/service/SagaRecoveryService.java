@@ -16,16 +16,22 @@ import ru.otus.hw.dto.NotificationEvent;
 import ru.otus.hw.dto.ProductReservationListResponseDto;
 import ru.otus.hw.dto.ProductReservationResponseDto;
 import ru.otus.hw.dto.ReservationStatus;
+import ru.otus.hw.metrics.OrderBusinessMetrics;
+import ru.otus.hw.metrics.SagaMetrics;
 import ru.otus.hw.models.Order;
 import ru.otus.hw.models.OrderSagaState;
 import ru.otus.hw.models.OrderSagaState.SagaStatus;
+import ru.otus.hw.models.OrderSagaState.SagaStep;
 import ru.otus.hw.producer.NotificationEventPublisher;
 import ru.otus.hw.repository.OrderRepository;
 import ru.otus.hw.repository.OrderSagaStateRepository;
+import ru.otus.hw.tracing.W3CTraceContextAdapter;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
 import java.util.function.Consumer;
@@ -79,6 +85,12 @@ public class SagaRecoveryService {
 
     private final TransactionTemplate transactionTemplate;
 
+    private final SagaMetrics sagaMetrics;
+
+    private final OrderBusinessMetrics orderBusinessMetrics;
+
+    private final W3CTraceContextAdapter traceContextAdapter;
+
     @Scheduled(fixedDelayString = "${app.saga.recovery.interval:60000}")
     public void recoverStaleSagas() {
         LocalDateTime staleBefore = LocalDateTime.now().minus(sagaRecoveryProperties.getStaleAfter());
@@ -86,10 +98,12 @@ public class SagaRecoveryService {
         List<OrderSagaState> staleSagas = orderSagaStateRepository.findStaleSagas(RECOVERABLE_STATUSES, staleBefore);
         for (OrderSagaState saga : staleSagas) {
             try {
+                sagaMetrics.recoveryTriggered(SagaMetrics.RECOVERY_KIND_STALE);
                 recoverSaga(saga);
             } catch (Exception e) {
+                sagaMetrics.recoveryFailure();
                 log.error("Saga recovery failed for order id: {}, will retry on the next run",
-                        orderIdOf(saga), e);
+                        orderIdOf(saga));
             }
         }
 
@@ -98,13 +112,20 @@ public class SagaRecoveryService {
             try {
                 completeConfirmedOrder(saga);
             } catch (Exception e) {
+                sagaMetrics.recoveryFailure();
                 log.error("Saga recovery (CONFIRMED finalization) failed for order id: {}, will retry on the next run",
-                        orderIdOf(saga), e);
+                        orderIdOf(saga));
             }
         }
     }
 
     private void recoverSaga(@NonNull OrderSagaState saga) {
+        try (W3CTraceContextAdapter.Scope ignored = traceContextAdapter.open(Map.of(), "saga.recovery")) {
+            recoverSagaInternal(saga);
+        }
+    }
+
+    private void recoverSagaInternal(@NonNull OrderSagaState saga) {
         Order order = saga.getOrder();
         Long orderId = order.getId();
         log.info("Saga recovery: probing actual state for order id: {}, sagaStatus: {}",
@@ -119,21 +140,21 @@ public class SagaRecoveryService {
             deliveryReserved = probeDeliveryReserved(orderId);
         } catch (Exception e) {
             log.error("Saga recovery: downstream probe failed for order id: {}, will retry on the next run",
-                    orderId, e);
+                    orderId);
             return;
         }
         log.info("Saga recovery actual state for order id: {}: billing={}, warehouse={}, delivery={}",
                 orderId, billingWithdrawn, warehouseReserved, deliveryReserved);
 
         if (saga.getSagaStatus() == SagaStatus.COMPENSATING) {
-            compensateActual(order, billingWithdrawn, warehouseReserved, deliveryReserved);
+            compensateActual(saga, order, billingWithdrawn, warehouseReserved, deliveryReserved);
             return;
         }
 
         if (billingWithdrawn && warehouseReserved && deliveryReserved) {
-            completeConfirmPhase(order);
+            completeConfirmPhase(saga, order);
         } else {
-            compensateActual(order, billingWithdrawn, warehouseReserved, deliveryReserved);
+            compensateActual(saga, order, billingWithdrawn, warehouseReserved, deliveryReserved);
         }
     }
 
@@ -187,13 +208,14 @@ public class SagaRecoveryService {
         return false;
     }
 
-    private void completeConfirmPhase(@NonNull Order order) {
+    private void completeConfirmPhase(@NonNull OrderSagaState saga, @NonNull Order order) {
         Long orderId = order.getId();
         log.info("Saga recovery: all forward steps done for order id: {}, running confirm phase", orderId);
         warehouseServiceClient.confirm(orderId);
         deliveryServiceClient.confirm(orderId);
         transitionSaga(orderId, SagaStatus.CONFIRMED);
         completePlacedOrder(order);
+        sagaMetrics.sagaCompleted(SagaMetrics.OUTCOME_PLACED, sagaDuration(saga));
     }
 
     /**
@@ -204,9 +226,11 @@ public class SagaRecoveryService {
         if (order.getOrderStatus() == Order.OrderStatus.PLACED) {
             return;
         }
-        log.warn("Saga recovery: saga CONFIRMED but order not PLACED — completing. Order id: {}, orderStatus: {}",
+        sagaMetrics.recoveryTriggered(SagaMetrics.RECOVERY_KIND_CONFIRMED_FINALIZATION);
+        log.warn("Saga recovery: saga CONFIRMED but order not PLACED - completing. Order id: {}, orderStatus: {}",
                 order.getId(), order.getOrderStatus());
         completePlacedOrder(order);
+        sagaMetrics.sagaCompleted(SagaMetrics.OUTCOME_PLACED, sagaDuration(saga));
     }
 
     private void completePlacedOrder(@NonNull Order order) {
@@ -215,8 +239,8 @@ public class SagaRecoveryService {
         log.info("Saga recovery: order id: {} marked PLACED", saved.getId());
     }
 
-    private void compensateActual(@NonNull Order order, boolean billingWithdrawn, boolean warehouseReserved,
-                                  boolean deliveryReserved) {
+    private void compensateActual(@NonNull OrderSagaState saga, @NonNull Order order, boolean billingWithdrawn,
+                                  boolean warehouseReserved, boolean deliveryReserved) {
         Long orderId = order.getId();
         log.info("Saga recovery: compensating order id: {} from actual state", orderId);
 
@@ -225,28 +249,31 @@ public class SagaRecoveryService {
         if (deliveryReserved) {
             try {
                 deliveryServiceClient.cancel(orderId);
+                sagaMetrics.compensation(SagaStep.DELIVERY_CANCEL);
                 log.info("Saga recovery compensation: delivery cancelled for order id: {}", orderId);
             } catch (Exception e) {
                 compensationFailed = true;
-                log.error("Saga recovery compensation failed: delivery cancel for order id: {}", orderId, e);
+                log.error("Saga recovery compensation failed: delivery cancel for order id: {}. Reason: {}", orderId, e.getMessage());
             }
         }
         if (warehouseReserved) {
             try {
                 warehouseServiceClient.cancel(orderId);
+                sagaMetrics.compensation(SagaStep.WAREHOUSE_CANCEL);
                 log.info("Saga recovery compensation: warehouse released for order id: {}", orderId);
             } catch (Exception e) {
                 compensationFailed = true;
-                log.error("Saga recovery compensation failed: warehouse cancel for order id: {}", orderId, e);
+                log.error("Saga recovery compensation failed: warehouse cancel for order id: {}. Reason: {}", orderId, e.getMessage());
             }
         }
         if (billingWithdrawn) {
             try {
                 billingServiceClient.refundFunds(order.getUserId(), order.getPrice(), orderId);
+                sagaMetrics.compensation(SagaStep.BILLING_REFUND);
                 log.info("Saga recovery compensation: billing refunded for order id: {}", orderId);
             } catch (Exception e) {
                 compensationFailed = true;
-                log.error("Saga recovery compensation failed: billing refund for order id: {}", orderId, e);
+                log.error("Saga recovery compensation failed: billing refund for order id: {}. Reason: {}", orderId, e.getMessage());
             }
         }
 
@@ -256,10 +283,26 @@ public class SagaRecoveryService {
         order.setOrderStatus(Order.OrderStatus.FAILED);
         finalizeWithNotification(order, "Order processing failed: saga recovered with compensation");
         log.info("Saga recovery: order id: {} marked FAILED with saga status: {}", orderId, finalStatus);
+        sagaMetrics.sagaCompleted(finalStatus == SagaStatus.COMPENSATED
+                        ? SagaMetrics.OUTCOME_COMPENSATED
+                        : SagaMetrics.OUTCOME_COMPENSATION_FAILED,
+                sagaDuration(saga));
 
         if (compensationFailed) {
             log.error("Saga recovery: order id: {} left in COMPENSATION_FAILED for manual resolution", orderId);
         }
+    }
+
+    /**
+     * Полная длительность саги для метрики на recovery-пути: от создания записи саги
+     * (включает простой упавшего пода).
+     */
+    private static @Nullable Duration sagaDuration(@NonNull OrderSagaState saga) {
+        LocalDateTime created = saga.getCreated();
+        if (created == null) {
+            return null;
+        }
+        return Duration.between(created, LocalDateTime.now());
     }
 
     private @NonNull Order finalizeWithNotification(@NonNull Order order, @NonNull String message) {
@@ -268,7 +311,9 @@ public class SagaRecoveryService {
             notificationEventPublisher.send(buildNotificationEvent(saved, message));
             return saved;
         });
-        return Objects.requireNonNull(savedOrder, "Order save with notification event returned null");
+        Order saved = Objects.requireNonNull(savedOrder, "Order save with notification event returned null");
+        orderBusinessMetrics.orderTerminal(saved.getOrderStatus(), saved.getPrice());
+        return saved;
     }
 
     private void transitionSaga(@NonNull Long orderId, @NonNull SagaStatus status) {

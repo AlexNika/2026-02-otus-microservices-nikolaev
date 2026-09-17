@@ -11,7 +11,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * Проверка топологии RabbitMQ NOTIFICATIONService:<br>
- * DLX-аргументы основной очереди, DLQ и bindings.
+ * DLX-аргументы основной очереди, DLQ и bindings (каналы notification.event
+ * и user.profile.sync).
  */
 class RabbitMQConfigTest {
 
@@ -25,6 +26,12 @@ class RabbitMQConfigTest {
         properties.setQueueType("classic");
         properties.setRoutingKey("notification.event");
         properties.setConsumerEnabled("true");
+        RabbitMQProperties.UserSyncProperties userSync = new RabbitMQProperties.UserSyncProperties();
+        userSync.setExchangeName("user.sync.events");
+        userSync.setQueueName("notification.profile-sync.queue");
+        userSync.setQueueType("classic");
+        userSync.setRoutingKey("user.profile.sync");
+        properties.setUserSync(userSync);
         rabbitMQConfig = new RabbitMQConfig(properties);
     }
 
@@ -64,5 +71,43 @@ class RabbitMQConfigTest {
         assertThat(dlqBinding.getExchange()).isEqualTo("notifications.events");
         assertThat(dlqBinding.getRoutingKey()).isEqualTo("notification.event.dlq");
         assertThat(dlqBinding.getDestination()).isEqualTo("notification.queue.dlq");
+    }
+
+    @Test
+    @DisplayName("user-sync очередь объявлена с DLX-аргументами user.sync.events/user.profile.sync.dlq")
+    void shouldDeclareProfileSyncQueueWithDeadLetterArguments() {
+        Queue queue = rabbitMQConfig.notificationProfileSyncQueue();
+
+        assertThat(queue.getName()).isEqualTo("notification.profile-sync.queue");
+        assertThat(queue.isDurable()).isTrue();
+        assertThat(queue.getArguments())
+                .containsEntry("x-queue-type", "classic")
+                .containsEntry("x-dead-letter-exchange", "user.sync.events")
+                .containsEntry("x-dead-letter-routing-key", "user.profile.sync.dlq");
+    }
+
+    @Test
+    @DisplayName("user-sync DLQ объявлена как durable-очередь notification.profile-sync.queue.dlq")
+    void shouldDeclareProfileSyncDurableDlq() {
+        Queue dlq = rabbitMQConfig.notificationProfileSyncDlq();
+
+        assertThat(dlq.getName()).isEqualTo("notification.profile-sync.queue.dlq");
+        assertThat(dlq.isDurable()).isTrue();
+        assertThat(dlq.getArguments()).doesNotContainKey("x-dead-letter-exchange");
+    }
+
+    @Test
+    @DisplayName("user-sync bindings: очередь по user.profile.sync, DLQ по user.profile.sync.dlq")
+    void shouldBindProfileSyncQueuesWithExpectedRoutingKeys() {
+        Binding mainBinding = rabbitMQConfig.notificationProfileSyncBinding();
+        Binding dlqBinding = rabbitMQConfig.notificationProfileSyncDlqBinding();
+
+        assertThat(mainBinding.getExchange()).isEqualTo("user.sync.events");
+        assertThat(mainBinding.getRoutingKey()).isEqualTo("user.profile.sync");
+        assertThat(mainBinding.getDestination()).isEqualTo("notification.profile-sync.queue");
+
+        assertThat(dlqBinding.getExchange()).isEqualTo("user.sync.events");
+        assertThat(dlqBinding.getRoutingKey()).isEqualTo("user.profile.sync.dlq");
+        assertThat(dlqBinding.getDestination()).isEqualTo("notification.profile-sync.queue.dlq");
     }
 }

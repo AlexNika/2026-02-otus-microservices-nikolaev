@@ -115,6 +115,16 @@ public class GlobalExceptionHandler {
                 ErrorCodes.DELIVERY_COURIER_ASSIGNMENT_FAILED);
     }
 
+    /**
+     * Отказы method-security (@PreAuthorize/@PostAuthorize) НЕ глотаем:
+     * пробрасываем в ExceptionTranslationFilter -> единообразный 403 JSON.
+     */
+    @ExceptionHandler(org.springframework.security.access.AccessDeniedException.class)
+    public void handleAccessDeniedException(org.springframework.security.access.@NonNull AccessDeniedException ex)
+            throws org.springframework.security.access.AccessDeniedException {
+        throw ex;
+    }
+
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ErrorDto> handleGenericException(Exception ex) {
         log.error("Unexpected error: {}", ex.getMessage(), ex);

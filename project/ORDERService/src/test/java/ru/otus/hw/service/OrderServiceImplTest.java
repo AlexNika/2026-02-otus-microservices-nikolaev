@@ -97,6 +97,12 @@ class OrderServiceImplTest {
     @Mock
     private TransactionTemplate transactionTemplate;
 
+    @Mock
+    private ru.otus.hw.metrics.SagaMetrics sagaMetrics;
+
+    @Mock
+    private ru.otus.hw.metrics.OrderBusinessMetrics orderBusinessMetrics;
+
     @InjectMocks
     private OrderServiceImpl orderService;
 
@@ -122,7 +128,7 @@ class OrderServiceImplTest {
     }
 
     private OrderCreateDto createDto() {
-        return new OrderCreateDto(USER_ID, PRICE, "test order", PRODUCT_ID, QUANTITY,
+        return new OrderCreateDto(PRICE, "test order", PRODUCT_ID, QUANTITY,
                 DELIVERY_DATE, SLOT_START, SLOT_END);
     }
 
@@ -164,12 +170,12 @@ class OrderServiceImplTest {
     void shouldCreateOrderWhenAllSagaStepsSucceed() {
         stubCreateOrderPersistence();
 
-        OrderResponseDto response = orderService.createOrder(createDto());
+        OrderResponseDto response = orderService.createOrder(createDto(), USER_ID);
 
         assertThat(response.orderStatus()).isEqualTo(Order.OrderStatus.PLACED);
         verify(billingServiceClient).withdrawFunds(USER_ID, PRICE, ORDER_ID);
         verify(warehouseServiceClient).reserve(ORDER_ID, PRODUCT_ID, QUANTITY, EXPECTED_WAREHOUSE_IDEMPOTENCY_KEY);
-        verify(deliveryServiceClient).reserve(ORDER_ID, DELIVERY_DATE, SLOT_START, SLOT_END);
+        verify(deliveryServiceClient).reserve(ORDER_ID, USER_ID, DELIVERY_DATE, SLOT_START, SLOT_END);
         verify(warehouseServiceClient).confirm(ORDER_ID);
         verify(deliveryServiceClient).confirm(ORDER_ID);
         assertThat(sagaTransitions).containsExactly(
@@ -194,13 +200,13 @@ class OrderServiceImplTest {
                 .when(billingServiceClient).withdrawFunds(USER_ID, PRICE, ORDER_ID);
 
         BillingServiceException ex = assertThrows(BillingServiceException.class,
-                () -> orderService.createOrder(createDto()));
+                () -> orderService.createOrder(createDto(), USER_ID));
 
         assertThat(ex.getMessage()).contains("Insufficient funds");
         verify(billingServiceClient, never()).refundFunds(anyLong(), any(), anyLong());
         verify(warehouseServiceClient, never()).reserve(anyLong(), anyLong(), any(Integer.class), anyString());
         verify(warehouseServiceClient, never()).cancel(anyLong());
-        verify(deliveryServiceClient, never()).reserve(anyLong(), any(), any(), any());
+        verify(deliveryServiceClient, never()).reserve(anyLong(), anyLong(), any(), any(), any());
         verify(deliveryServiceClient, never()).cancel(anyLong());
         verify(warehouseServiceClient, never()).confirm(anyLong());
         verify(deliveryServiceClient, never()).confirm(anyLong());
@@ -220,12 +226,12 @@ class OrderServiceImplTest {
                         EXPECTED_WAREHOUSE_IDEMPOTENCY_KEY);
 
         WarehouseServiceException ex = assertThrows(WarehouseServiceException.class,
-                () -> orderService.createOrder(createDto()));
+                () -> orderService.createOrder(createDto(), USER_ID));
 
         assertThat(ex.getCode()).isEqualTo(ErrorCodes.INSUFFICIENT_STOCK);
         verify(billingServiceClient).refundFunds(USER_ID, PRICE, ORDER_ID);
         verify(warehouseServiceClient, never()).cancel(anyLong());
-        verify(deliveryServiceClient, never()).reserve(anyLong(), any(), any(), any());
+        verify(deliveryServiceClient, never()).reserve(anyLong(), anyLong(), any(), any(), any());
         verify(deliveryServiceClient, never()).cancel(anyLong());
         verify(warehouseServiceClient, never()).confirm(anyLong());
         verify(deliveryServiceClient, never()).confirm(anyLong());
@@ -242,10 +248,10 @@ class OrderServiceImplTest {
         stubCreateOrderPersistence();
         doThrow(new DeliveryServiceException(SagaStep.DELIVERY_RESERVE,
                 ErrorCodes.DELIVERY_NO_FREE_COURIER, "No free courier"))
-                .when(deliveryServiceClient).reserve(ORDER_ID, DELIVERY_DATE, SLOT_START, SLOT_END);
+                .when(deliveryServiceClient).reserve(ORDER_ID, USER_ID, DELIVERY_DATE, SLOT_START, SLOT_END);
 
         DeliveryServiceException ex = assertThrows(DeliveryServiceException.class,
-                () -> orderService.createOrder(createDto()));
+                () -> orderService.createOrder(createDto(), USER_ID));
 
         assertThat(ex.getCode()).isEqualTo(ErrorCodes.DELIVERY_NO_FREE_COURIER);
         verify(deliveryServiceClient, never()).cancel(anyLong());
@@ -266,11 +272,11 @@ class OrderServiceImplTest {
         stubCreateOrderPersistence();
         doThrow(new DeliveryServiceException(SagaStep.DELIVERY_RESERVE,
                 ErrorCodes.DELIVERY_NO_FREE_COURIER, "No free courier"))
-                .when(deliveryServiceClient).reserve(ORDER_ID, DELIVERY_DATE, SLOT_START, SLOT_END);
+                .when(deliveryServiceClient).reserve(ORDER_ID, USER_ID, DELIVERY_DATE, SLOT_START, SLOT_END);
         doThrow(new WarehouseServiceException(SagaStep.WAREHOUSE_CANCEL, null, "Warehouse down"))
                 .when(warehouseServiceClient).cancel(ORDER_ID);
 
-        assertThrows(DeliveryServiceException.class, () -> orderService.createOrder(createDto()));
+        assertThrows(DeliveryServiceException.class, () -> orderService.createOrder(createDto(), USER_ID));
 
         verify(deliveryServiceClient, never()).cancel(anyLong());
         verify(billingServiceClient).refundFunds(USER_ID, PRICE, ORDER_ID);

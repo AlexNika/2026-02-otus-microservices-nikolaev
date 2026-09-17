@@ -5,13 +5,16 @@ import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
+import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springdoc.core.annotations.ParameterObject;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.web.PageableDefault;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
@@ -38,6 +41,7 @@ import java.net.URI;
 @RequiredArgsConstructor
 @RequestMapping("api/v1/products")
 @Tag(name = "Product API", description = "REST API for product management")
+@SecurityRequirement(name = "basicAuth")
 public class ProductResource {
 
     private final ProductService productService;
@@ -52,9 +56,14 @@ public class ProductResource {
                     content = @Content(schema = @Schema(implementation = ProductResponseDto.class))),
             @ApiResponse(responseCode = "400", description = "Invalid input data",
                     content = @Content(schema = @Schema(implementation = ErrorDto.class))),
+            @ApiResponse(responseCode = "401", description = "Authentication required",
+                    content = @Content(schema = @Schema(implementation = ErrorDto.class))),
+            @ApiResponse(responseCode = "403", description = "Admin role required",
+                    content = @Content(schema = @Schema(implementation = ErrorDto.class))),
             @ApiResponse(responseCode = "409", description = "Product with the given SKU already exists",
                     content = @Content(schema = @Schema(implementation = ErrorDto.class)))
     })
+    @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<ProductResponseDto> createProduct(@Valid @RequestBody
                                                             ProductCreateRequestDto productCreateRequestDto) {
         ProductResponseDto response = productService.createProduct(productCreateRequestDto);
@@ -73,6 +82,8 @@ public class ProductResource {
             @ApiResponse(responseCode = "200", description = "Product found",
                     content = @Content(schema = @Schema(implementation = ProductResponseDto.class))),
             @ApiResponse(responseCode = "404", description = "Product not found",
+                    content = @Content(schema = @Schema(implementation = ErrorDto.class))),
+            @ApiResponse(responseCode = "401", description = "Authentication required",
                     content = @Content(schema = @Schema(implementation = ErrorDto.class)))
     })
     public ResponseEntity<ProductResponseDto> getProductById(@PathVariable Long productId) {
@@ -86,6 +97,8 @@ public class ProductResource {
             @ApiResponse(responseCode = "200", description = "Product found",
                     content = @Content(schema = @Schema(implementation = ProductResponseDto.class))),
             @ApiResponse(responseCode = "404", description = "Product not found",
+                    content = @Content(schema = @Schema(implementation = ErrorDto.class))),
+            @ApiResponse(responseCode = "401", description = "Authentication required",
                     content = @Content(schema = @Schema(implementation = ErrorDto.class)))
     })
     public ResponseEntity<ProductResponseDto> getProductBySku(@PathVariable("sku") String sku) {
@@ -99,6 +112,8 @@ public class ProductResource {
             @ApiResponse(responseCode = "200", description = "Product stock found",
                     content = @Content(schema = @Schema(implementation = ProductStockResponseDto.class))),
             @ApiResponse(responseCode = "404", description = "Product or its stock not found",
+                    content = @Content(schema = @Schema(implementation = ErrorDto.class))),
+            @ApiResponse(responseCode = "401", description = "Authentication required",
                     content = @Content(schema = @Schema(implementation = ErrorDto.class)))
     })
     public ResponseEntity<ProductStockResponseDto> getProductStockByProductId(@PathVariable Long productId) {
@@ -110,11 +125,15 @@ public class ProductResource {
             description = "Searches products by name and/or manufacturer article (case-insensitive substring match). " +
                     "Empty parameters return all products.")
     @ApiResponses(value = {
-            @ApiResponse(responseCode = "200", description = "List of matching products retrieved")
+            @ApiResponse(responseCode = "200", description = "List of matching products retrieved",
+                    content = @Content(schema = @Schema(implementation = ProductResponseDto.class))),
+            @ApiResponse(responseCode = "401", description = "Authentication required",
+                    content = @Content(schema = @Schema(implementation = ErrorDto.class)))
     })
     public ResponseEntity<Page<ProductResponseDto>> searchProducts(
             @RequestParam(required = false) String name,
             @RequestParam(required = false) String article,
+            @ParameterObject
             @PageableDefault(size = 20, sort = "id") Pageable pageable) {
         return ResponseEntity.ok(productService.searchProducts(name, article, pageable));
     }
@@ -125,6 +144,8 @@ public class ProductResource {
                     "Returns 204 if it exists, 404 otherwise.")
     @ApiResponses(value = {
             @ApiResponse(responseCode = "204", description = "Product with the given SKU exists"),
+            @ApiResponse(responseCode = "401", description = "Authentication required",
+                    content = @Content(schema = @Schema(implementation = ErrorDto.class))),
             @ApiResponse(responseCode = "404", description = "Product with the given SKU does not exist")
     })
     public ResponseEntity<Void> existsBySku(@PathVariable("sku") String sku) {
@@ -137,9 +158,13 @@ public class ProductResource {
     @Operation(summary = "Get all products",
             description = "Retrieves a paginated list of all products")
     @ApiResponses(value = {
-            @ApiResponse(responseCode = "200", description = "List of products retrieved")
+            @ApiResponse(responseCode = "200", description = "List of products retrieved",
+                    content = @Content(schema = @Schema(implementation = ProductResponseDto.class))),
+            @ApiResponse(responseCode = "401", description = "Authentication required",
+                    content = @Content(schema = @Schema(implementation = ErrorDto.class)))
     })
     public ResponseEntity<Page<ProductResponseDto>> getAllProducts(
+            @ParameterObject
             @PageableDefault(size = 20, sort = "id") Pageable pageable) {
         return ResponseEntity.ok(productService.getAllProducts(pageable));
     }
@@ -153,8 +178,13 @@ public class ProductResource {
             @ApiResponse(responseCode = "400", description = "Invalid input data",
                     content = @Content(schema = @Schema(implementation = ErrorDto.class))),
             @ApiResponse(responseCode = "404", description = "Product not found",
+                    content = @Content(schema = @Schema(implementation = ErrorDto.class))),
+            @ApiResponse(responseCode = "401", description = "Authentication required",
+                    content = @Content(schema = @Schema(implementation = ErrorDto.class))),
+            @ApiResponse(responseCode = "403", description = "Admin role required",
                     content = @Content(schema = @Schema(implementation = ErrorDto.class)))
     })
+    @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<ProductResponseDto> updateProduct(@PathVariable Long productId,
                                                             @Valid @RequestBody
                                                             ProductUpdateRequestDto productUpdateRequestDto) {
@@ -172,8 +202,13 @@ public class ProductResource {
             @ApiResponse(responseCode = "400", description = "Invalid input data",
                     content = @Content(schema = @Schema(implementation = ErrorDto.class))),
             @ApiResponse(responseCode = "404", description = "Product not found",
+                    content = @Content(schema = @Schema(implementation = ErrorDto.class))),
+            @ApiResponse(responseCode = "401", description = "Authentication required",
+                    content = @Content(schema = @Schema(implementation = ErrorDto.class))),
+            @ApiResponse(responseCode = "403", description = "Admin role required",
                     content = @Content(schema = @Schema(implementation = ErrorDto.class)))
     })
+    @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<ProductResponseDto> patchProduct(@PathVariable Long productId,
                                                            @Valid @RequestBody
                                                            ProductPatchRequestDto productPatchRequestDto) {
@@ -188,9 +223,14 @@ public class ProductResource {
                     "Returns 204 on success, 404 if product not found.")
     @ApiResponses(value = {
             @ApiResponse(responseCode = "204", description = "Product deleted successfully"),
+            @ApiResponse(responseCode = "401", description = "Authentication required",
+                    content = @Content(schema = @Schema(implementation = ErrorDto.class))),
+            @ApiResponse(responseCode = "403", description = "Admin role required",
+                    content = @Content(schema = @Schema(implementation = ErrorDto.class))),
             @ApiResponse(responseCode = "404", description = "Product not found",
                     content = @Content(schema = @Schema(implementation = ErrorDto.class)))
     })
+    @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<Void> deleteProduct(@PathVariable Long productId) {
         productService.deleteProduct(productId);
         return ResponseEntity.noContent().build();

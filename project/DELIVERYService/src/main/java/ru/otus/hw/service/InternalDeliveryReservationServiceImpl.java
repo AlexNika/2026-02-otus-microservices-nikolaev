@@ -70,6 +70,7 @@ public class InternalDeliveryReservationServiceImpl implements InternalDeliveryR
 
         DeliveryReservation reservation = deliveryReservationRepository.save(DeliveryReservation.builder()
                 .orderId(request.orderId())
+                .userId(request.userId())
                 .courierSlot(slot)
                 .assignedCourierNumber(courierNumber)
                 .status(DeliveryReservationStatus.RESERVED)

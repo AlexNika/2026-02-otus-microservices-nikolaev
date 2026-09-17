@@ -4,13 +4,16 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
+import org.springframework.context.annotation.Import;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
+import ru.otus.hw.config.SecurityConfig;
 import ru.otus.hw.config.properties.InternalApiKeyConfig;
 import ru.otus.hw.controller.InternalOrderResource;
+import ru.otus.hw.security.JwtTokenProvider;
 import ru.otus.hw.service.AccountService;
 
 import java.math.BigDecimal;
@@ -23,8 +26,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @WebMvcTest(InternalOrderResource.class)
+@Import(SecurityConfig.class)
 class GlobalExceptionHandlerTest {
-
     private static final String VALID_API_KEY = "testInternalApiKey";
 
     private static final String WITHDRAW_URL = "/internal/order/withdraw";
@@ -43,6 +46,9 @@ class GlobalExceptionHandlerTest {
 
     @MockitoBean
     private AccountService accountService;
+
+    @MockitoBean
+    private JwtTokenProvider jwtTokenProvider;
 
     @Test
     @DisplayName("должен вернуть 409 с кодом BILLING_INSUFFICIENT_FUNDS при недостатке средств")
@@ -176,7 +182,6 @@ class GlobalExceptionHandlerTest {
                         .header("X-Internal-API-Key", VALID_API_KEY)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(
-                                // language=text
                                 "{invalid json"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.status").value(400))
@@ -210,7 +215,8 @@ class GlobalExceptionHandlerTest {
                         .content(VALID_WITHDRAW_BODY))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.status").value(401))
-                .andExpect(jsonPath("$.message", containsString("Missing required header 'X-Internal-API-Key'")));
+                .andExpect(jsonPath("$.message",
+                        containsString("Missing required header 'X-Internal-API-Key'")));
     }
 
     @Test
@@ -224,6 +230,7 @@ class GlobalExceptionHandlerTest {
                         .content(VALID_WITHDRAW_BODY))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.status").value(401))
-                .andExpect(jsonPath("$.message", containsString("Invalid internal API key")));
+                .andExpect(jsonPath("$.message",
+                        containsString("Invalid internal API key")));
     }
 }

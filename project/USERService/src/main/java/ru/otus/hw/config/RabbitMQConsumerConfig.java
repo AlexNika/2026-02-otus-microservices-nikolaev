@@ -61,4 +61,45 @@ public class RabbitMQConsumerConfig {
                 .to(accountEventsExchange())
                 .with(rabbitMQProperties.getConsumer().getRoutingKey() + ".dlq");
     }
+
+    /**
+     * Приём UserCreatedEvent (AUTH → USER): AuthService публикует расширенное событие
+     * в общий exchange users.events / user.created; очередь user.user-created.queue
+     * с DLQ-маршрутизацией создаёт проекцию users/user_profile/user_addresses.
+     */
+    @Bean
+    public DirectExchange userCreatedEventsExchange() {
+        return new DirectExchange(rabbitMQProperties.getUserCreated().getExchangeName(), true, false);
+    }
+
+    @Bean
+    public Queue userCreatedQueue() {
+        return QueueBuilder.durable(rabbitMQProperties.getUserCreated().getQueueName())
+                .withArgument("x-queue-type", rabbitMQProperties.getUserCreated().getQueueType())
+                .withArgument("x-dead-letter-exchange", rabbitMQProperties.getUserCreated().getExchangeName())
+                .withArgument("x-dead-letter-routing-key",
+                        rabbitMQProperties.getUserCreated().getRoutingKey() + ".dlq")
+                .build();
+    }
+
+    @Bean
+    public Queue userCreatedDlq() {
+        return QueueBuilder.durable(rabbitMQProperties.getUserCreated().getQueueName() + ".dlq")
+                .withArgument("x-queue-type", rabbitMQProperties.getUserCreated().getQueueType())
+                .build();
+    }
+
+    @Bean
+    public Binding userCreatedBinding() {
+        return BindingBuilder.bind(userCreatedQueue())
+                .to(userCreatedEventsExchange())
+                .with(rabbitMQProperties.getUserCreated().getRoutingKey());
+    }
+
+    @Bean
+    public Binding userCreatedDlqBinding() {
+        return BindingBuilder.bind(userCreatedDlq())
+                .to(userCreatedEventsExchange())
+                .with(rabbitMQProperties.getUserCreated().getRoutingKey() + ".dlq");
+    }
 }

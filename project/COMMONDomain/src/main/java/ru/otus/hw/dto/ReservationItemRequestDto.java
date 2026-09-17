@@ -9,7 +9,7 @@ import jakarta.validation.constraints.Size;
 /**
  * DTO for product reservation item request.
  *
- * <p>{@code idempotencyKey} — строковый детерминированный ключ резерва
+ * <p>{@code idempotencyKey} - строковый детерминированный ключ резерва
  * (контракт ORDER→WAREHOUSE: {@code "order-{orderId}-p{productId}"}).
  */
 @JsonIgnoreProperties(ignoreUnknown = true)

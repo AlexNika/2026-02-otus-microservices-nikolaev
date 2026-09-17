@@ -8,7 +8,7 @@ import java.time.Instant;
 /**
  * Событие канала BILLING → USER: биллинг-аккаунт для пользователя готов.
  *
- * <p>Идемпотентность потребления — по natural key {@code userId}: пользователь переводится
+ * <p>Идемпотентность потребления - по natural key {@code userId}: пользователь переводится
  * в ACTIVE из PENDING/BLOCKED; повторные доставки безопасны.
  */
 @Builder

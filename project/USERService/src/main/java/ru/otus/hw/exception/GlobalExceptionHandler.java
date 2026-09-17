@@ -9,7 +9,6 @@ import org.springframework.security.core.AuthenticationException;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
-import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import ru.otus.hw.dto.ErrorDto;
 
@@ -31,7 +30,7 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(DuplicateResourceException.class)
     public ResponseEntity<ErrorDto> handleDuplicateResourceException(@NonNull DuplicateResourceException ex) {
-        log.warn("User user is duplicated: {}", ex.getMessage());
+        log.warn("Duplicate resource: {}", ex.getMessage());
         return buildError(HttpStatus.CONFLICT, ex.getMessage());
     }
 
@@ -59,13 +58,6 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ErrorDto> handleInternalServerErrorException(@NonNull InternalServerErrorException ex) {
         log.error("Internal server error: {}", ex.getMessage());
         return buildError(HttpStatus.INTERNAL_SERVER_ERROR, ex.getMessage());
-    }
-
-    @ExceptionHandler(InvalidJwtException.class)
-    @ResponseStatus(HttpStatus.FORBIDDEN)
-    public ResponseEntity<ErrorDto> handleInvalidJwtException(@NonNull InvalidJwtException ex) {
-        log.warn("Invalid JWT: {}", ex.getMessage());
-        return buildError(HttpStatus.FORBIDDEN, "Invalid JWT");
     }
 
     @ExceptionHandler(AuthenticationException.class)

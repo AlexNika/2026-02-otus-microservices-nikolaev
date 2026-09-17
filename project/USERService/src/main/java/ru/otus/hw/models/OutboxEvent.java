@@ -18,11 +18,12 @@ import lombok.Setter;
 import java.time.LocalDateTime;
 
 /**
- * Запись transactional outbox события UserCreatedEvent (USER → BILLING). Записывается в одной
- * транзакции с сохранением пользователя; публикуется scheduled-вычиткой ({@code OutboxPublisher}).
+ * Запись transactional outbox. Общий outbox несёт события нескольких типов
+ * (см. {@link EventType}); записывается в одной транзакции с бизнес-изменением,
+ * публикуется scheduled-вычиткой ({@code OutboxPublisher}).
  *
- * <p>{@code eventId} совпадает с eventId самого UserCreatedEvent: UNIQUE-ограничение делает
- * повторную запись невозможной, а идемпотентность потребления по natural key userId делает
+ * <p>{@code eventId} совпадает с eventId самого события: UNIQUE-ограничение делает
+ * повторную запись невозможной, а идемпотентность потребления по natural key делает
  * безопасными повторные публикации при retry.
  */
 @Getter
@@ -44,6 +45,11 @@ public class OutboxEvent {
     @Column(name = "event_id", nullable = false, unique = true, length = 36)
     private String eventId;
 
+    @Enumerated(EnumType.STRING)
+    @Column(name = "event_type", nullable = false, length = 20)
+    @Builder.Default
+    private EventType eventType = EventType.USER_CREATED;
+
     @Column(name = "payload", nullable = false, columnDefinition = "TEXT")
     private String payload;
 
@@ -57,8 +63,30 @@ public class OutboxEvent {
     @Column(name = "created_at", nullable = false)
     private LocalDateTime createdAt;
 
+    @Column(name = "traceparent", length = 55)
+    private String traceparent;
+
+    @Column(name = "tracestate", columnDefinition = "TEXT")
+    private String tracestate;
+
     @Column(name = "sent_at")
     private LocalDateTime sentAt;
+
+    /**
+     * Тип события в общем outbox: определяет exchange/routing key и класс десериализации payload.
+     */
+    public enum EventType {
+        /**
+         * USER → BILLING: пользователь зарегистрирован (users.events / user.created).
+         */
+        USER_CREATED,
+
+        /**
+         * USER → NOTIFICATION, DELIVERY: полный снимок контактов и адресов
+         * (user.sync.events / user.profile.sync).
+         */
+        USER_SYNC
+    }
 
     public enum OutboxStatus {
         NEW,

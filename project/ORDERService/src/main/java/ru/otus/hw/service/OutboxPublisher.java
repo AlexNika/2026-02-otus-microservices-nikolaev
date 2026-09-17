@@ -2,6 +2,9 @@ package ru.otus.hw.service;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.Gauge;
+import io.micrometer.core.instrument.MeterRegistry;
 import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -15,9 +18,11 @@ import ru.otus.hw.dto.NotificationEvent;
 import ru.otus.hw.models.OutboxEvent;
 import ru.otus.hw.models.OutboxEvent.OutboxStatus;
 import ru.otus.hw.repository.OutboxEventRepository;
+import ru.otus.hw.tracing.W3CTraceContextAdapter;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * Scheduled-вычитка transactional outbox и публикация событий в RabbitMQ.
@@ -35,6 +40,14 @@ public class OutboxPublisher {
 
     private static final int MAX_ATTEMPTS = 5;
 
+    private static final String METRIC_PENDING = "outbox.events.pending";
+
+    private static final String METRIC_PUBLISHED = "outbox.events.published";
+
+    private static final String METRIC_FAILED = "outbox.events.failed";
+
+    private static final String METRIC_REQUEUED = "outbox.events.requeued";
+
     private final OutboxEventRepository outboxEventRepository;
 
     private final RabbitTemplate rabbitTemplate;
@@ -43,6 +56,22 @@ public class OutboxPublisher {
 
     private final ObjectMapper objectMapper;
 
+    private final W3CTraceContextAdapter traceContextAdapter;
+
+    private final MeterRegistry meterRegistry;
+
+    /**
+     * Текущее число событий в статусе NEW: gauge обновляется на каждом тике
+     * {@link #publishPendingEvents()} (включая пустую вычитку - иначе значение застынет).
+     */
+    private final AtomicInteger pendingEventsGauge = new AtomicInteger(0);
+
+    private Counter eventsPublishedCounter;
+
+    private Counter eventsFailedCounter;
+
+    private Counter eventsRequeuedCounter;
+
     /**
      * publisher-confirms-type: correlated (см. application.yaml): nack и returned-сообщения
      * возвращают событие outbox в NEW для повторной публикации. mandatory=true включает
@@ -50,6 +79,19 @@ public class OutboxPublisher {
      */
     @PostConstruct
     void registerDeliveryCallbacks() {
+        Gauge.builder(METRIC_PENDING, pendingEventsGauge, AtomicInteger::get)
+                .description("Outbox events currently awaiting publication (status NEW)")
+                .register(meterRegistry);
+        eventsPublishedCounter = Counter.builder(METRIC_PUBLISHED)
+                .description("Outbox events successfully published (status SENT)")
+                .register(meterRegistry);
+        eventsFailedCounter = Counter.builder(METRIC_FAILED)
+                .description("Outbox events marked FAILED (attempts exhausted or corrupted payload)")
+                .register(meterRegistry);
+        eventsRequeuedCounter = Counter.builder(METRIC_REQUEUED)
+                .description("Outbox events returned to NEW by broker nack/return")
+                .register(meterRegistry);
+
         rabbitTemplate.setMandatory(true);
         rabbitTemplate.setConfirmCallback((correlationData, ack, cause) -> {
             if (!ack && correlationData != null && correlationData.getId() != null) {
@@ -70,6 +112,7 @@ public class OutboxPublisher {
     @Scheduled(fixedDelayString = "${app.outbox.publish-delay:1000}")
     public void publishPendingEvents() {
         List<OutboxEvent> pendingEvents = outboxEventRepository.findByStatusOrderByCreatedAtAsc(OutboxStatus.NEW);
+        pendingEventsGauge.set(pendingEvents.size());
         if (pendingEvents.isEmpty()) {
             return;
         }
@@ -91,6 +134,12 @@ public class OutboxPublisher {
                     notificationEvent,
                     message -> {
                         message.getMessageProperties().setCorrelationId(event.getEventId());
+                        traceContextAdapter.inject(message,
+                                (carrier, key, value) -> {
+                                    assert carrier != null;
+                                    carrier.getMessageProperties().setHeader(key, value);
+                                },
+                                event.getTraceparent(), event.getTracestate());
                         return message;
                     },
                     correlationData);
@@ -98,24 +147,27 @@ public class OutboxPublisher {
             event.setStatus(OutboxStatus.SENT);
             event.setSentAt(LocalDateTime.now());
             outboxEventRepository.save(event);
+            eventsPublishedCounter.increment();
             log.info("Outbox event published: eventId={}, orderId={}", event.getEventId(),
                     notificationEvent.orderId());
 
         } catch (JsonProcessingException e) {
-            log.error("Corrupted outbox payload, marking FAILED: eventId={}", event.getEventId(), e);
+            log.error("Corrupted outbox payload, marking FAILED: eventId={}", event.getEventId());
             event.setStatus(OutboxStatus.FAILED);
             outboxEventRepository.save(event);
+            eventsFailedCounter.increment();
 
         } catch (RuntimeException e) {
             int attempts = event.getAttempts() == null ? 0 : event.getAttempts();
             event.setAttempts(attempts + 1);
             if (event.getAttempts() >= MAX_ATTEMPTS) {
                 event.setStatus(OutboxStatus.FAILED);
+                eventsFailedCounter.increment();
                 log.error("Outbox event publishing failed after {} attempts, marking FAILED: eventId={}",
-                        event.getAttempts(), event.getEventId(), e);
+                        event.getAttempts(), event.getEventId());
             } else {
                 log.warn("Outbox event publishing failed (attempt {}), will retry: eventId={}",
-                        event.getAttempts(), event.getEventId(), e);
+                        event.getAttempts(), event.getEventId());
             }
             outboxEventRepository.save(event);
         }
@@ -132,6 +184,7 @@ public class OutboxPublisher {
             event.setStatus(OutboxStatus.NEW);
             event.setSentAt(null);
             outboxEventRepository.save(event);
+            eventsRequeuedCounter.increment();
             log.warn("Outbox event returned for republishing: eventId={}, reason={}", eventId, reason);
         });
     }

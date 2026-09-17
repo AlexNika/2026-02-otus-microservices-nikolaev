@@ -32,7 +32,7 @@ public interface IdempotencyService {
     void recordSuccess(UUID idempotencyKey, OrderResponseDto response);
 
     /**
-     * Провал саги: обновляет saga_status, ключ остаётся — повтор запроса не создаёт второй заказ.
+     * Провал саги: обновляет saga_status, ключ остаётся - повтор запроса не создаёт второй заказ.
      */
     void recordSagaStatus(UUID idempotencyKey, SagaStatus sagaStatus);
 

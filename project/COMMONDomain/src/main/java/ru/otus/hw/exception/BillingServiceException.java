@@ -20,7 +20,7 @@ public class BillingServiceException extends RuntimeException {
     /**
      * Флаг транзитности ошибки.<br>
      * --- GETTER ---<br>
-     * Транзитная ошибка (5xx, тайм-аут, CONCURRENT_MODIFICATION) — шаг саги можно повторить.
+     * Транзитная ошибка (5xx, тайм-аут, CONCURRENT_MODIFICATION) - шаг саги можно повторить.
      */
     private final boolean transientError;
 

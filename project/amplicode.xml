@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="AmplicodeJpaPluginProjectSettings">
+    <option name="entityNameTemplate" />
+    <option name="isLombokBuilder" value="true" />
+    <option name="isLombokAllArgsConstructor" value="true" />
+    <option name="isLombokNoArgsConstructor" value="true" />
+    <option name="scaffoldingLanguage" />
+  </component>
+  <component name="AmplicodePersistenceUnitSettings">
+    <persistence-units>
+      <persistence-unit moduleName="project.BILLINGService.main" name="Default">
+        <packages>
+          <package value="ru.otus.hw" />
+        </packages>
+      </persistence-unit>
+      <persistence-unit moduleName="project.COMMONDomain.main" name="Default" />
+      <persistence-unit moduleName="project.DELIVERYService.main" name="Default">
+        <packages>
+          <package value="ru.otus.hw" />
+        </packages>
+      </persistence-unit>
+      <persistence-unit moduleName="project.NOTIFICATIONService.main" name="Default">
+        <packages>
+          <package value="ru.otus.hw" />
+        </packages>
+      </persistence-unit>
+      <persistence-unit moduleName="project.ORDERService.main" name="Default">
+        <packages>
+          <package value="ru.otus.hw" />
+        </packages>
+      </persistence-unit>
+      <persistence-unit moduleName="project.USERService.main" name="Default">
+        <packages>
+          <package value="ru.otus.hw" />
+        </packages>
+      </persistence-unit>
+      <persistence-unit moduleName="project.WAREHOUSEService.main" name="Default">
+        <packages>
+          <package value="ru.otus.hw" />
+        </packages>
+      </persistence-unit>
+      <persistence-unit moduleName="project.AUTHService.main" name="Default">
+        <packages>
+          <package value="ru.otus.hw" />
+        </packages>
+      </persistence-unit>
+    </persistence-units>
+  </component>
+</project>

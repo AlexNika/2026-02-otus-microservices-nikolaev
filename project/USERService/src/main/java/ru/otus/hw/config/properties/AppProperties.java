@@ -11,10 +11,7 @@ import org.springframework.context.annotation.Configuration;
 @Setter
 @Configuration
 @ConfigurationProperties(prefix = "app")
-public class AppProperties implements SimulationConfig, BillingServiceUrlConfig, InternalApiKeyConfig {
-
-    @Getter(onMethod = @__(@Override))
-    private boolean isSimulationErrorsBypassEnabled;
+public class AppProperties implements BillingServiceUrlConfig, InternalApiKeyConfig, AuthServiceUrlConfig {
 
     @Getter(onMethod = @__(@Override))
     private String billingServiceUrl;
@@ -22,10 +19,13 @@ public class AppProperties implements SimulationConfig, BillingServiceUrlConfig,
     @Getter(onMethod = @__(@Override))
     private String internalApiKey;
 
+    @Getter(onMethod = @__(@Override))
+    private String authServiceUrl;
+
     @PostConstruct
     public void logProperties() {
-        log.debug("Loaded SimulationProperties: isSimulationErrorsBypassEnabled={}", isSimulationErrorsBypassEnabled);
-        log.debug("Loaded BillingServiceUrl: BillingServiceUrl={}", billingServiceUrl);
         log.debug("Loaded InternalApiKey: InternalApiKey={}", internalApiKey == null ? "<not set>" : "***");
+        log.debug("Loaded AuthServiceUrl: authServiceUrl={}", authServiceUrl);
+        log.debug("Loaded BillingServiceUrl: BillingServiceUrl={}", billingServiceUrl);
     }
 }

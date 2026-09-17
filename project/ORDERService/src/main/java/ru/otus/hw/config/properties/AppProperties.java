@@ -12,7 +12,7 @@ import org.springframework.context.annotation.Configuration;
 @Configuration
 @ConfigurationProperties(prefix = "app")
 public class AppProperties implements BillingServiceUrlConfig, WarehouseServiceUrlConfig,
-        DeliveryServiceUrlConfig, InternalApiKeyConfig {
+        DeliveryServiceUrlConfig, InternalApiKeyConfig, AuthServiceUrlConfig {
 
     @Getter(onMethod = @__(@Override))
     private String billingServiceUrl;
@@ -24,13 +24,17 @@ public class AppProperties implements BillingServiceUrlConfig, WarehouseServiceU
     private String deliveryServiceUrl;
 
     @Getter(onMethod = @__(@Override))
+    private String authServiceUrl;
+
+    @Getter(onMethod = @__(@Override))
     private String internalApiKey;
 
     @PostConstruct
     public void logProperties() {
+        log.debug("Loaded InternalApiKey: InternalApiKey={}", internalApiKey == null ? "<not set>" : "***");
+        log.debug("Loaded AuthServiceUrl: authServiceUrl={}", authServiceUrl);
         log.debug("Loaded BillingServiceUrl: BillingServiceUrl={}", billingServiceUrl);
         log.debug("Loaded WarehouseServiceUrl: WarehouseServiceUrl={}", warehouseServiceUrl);
         log.debug("Loaded DeliveryServiceUrl: DeliveryServiceUrl={}", deliveryServiceUrl);
-        log.debug("Loaded InternalApiKey: InternalApiKey={}", internalApiKey == null ? "<not set>" : "***");
     }
 }

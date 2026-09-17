@@ -40,7 +40,12 @@ public record ReserveDeliveryRequest(
                 requiredMode = Schema.RequiredMode.REQUIRED)
         @NotNull(message = "slotEnd cannot be null")
         @JsonFormat(pattern = "HH:mm")
-        LocalTime slotEnd
+        LocalTime slotEnd,
+
+        @Schema(description = "Owner of the order (assigned by ORDERService from its JWT; used for "
+                + "ownership checks of the reservation). Optional for backward compatibility.",
+                example = "7", requiredMode = Schema.RequiredMode.NOT_REQUIRED)
+        Long userId
         ) {
 
     @JsonIgnore

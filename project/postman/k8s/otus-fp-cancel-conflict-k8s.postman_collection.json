@@ -2,7 +2,7 @@
   "info": {
     "_postman_id": "7f3c2b90-6a1d-4e57-9c31-0b2a8d4e5f65",
     "name": "OTUS - Microservices Final Project - Order cancel CONFLICT (k8s)",
-    "description": "E2E сценарий Final Project: отмена заказа с уже подтверждёнными downstream-резервами.\n1. Товар со стоком 20, регистрация пользователя, депозит 100 руб.\n2. Заказ qty=1 -> 201 PLACED (резервы склада и доставки подтверждены синхронно внутри саги).\n3. POST /order/{id}/cancel -> 409 ORDER_STATE_CONFLICT.\n4. Заказ остаётся PLACED, резервы склада и доставки остаются CONFIRMED.\nПримечание: баланс после неудачной отмены не проверяется (известная особенность реализации: refund выполняется до проверки downstream-резервов). Уведомлений cancel не публикует — опроса нет.\n\nЗапуск: из fp/ выполнить scripts/06-run-postman-k8s.ps1 (newman) — ключ X-Internal-API-Key читается из fp/.env (или задаётся параметром -InternalApiKey) и передаётся newman через --env-var internalApiKey. Вручную: newman run postman/k8s/otus-hw9-cancel-conflict-k8s.postman_collection.json -e postman/k8s/k8s.postman_environment.json --env-var internalApiKey=<ключ из fp/.env>.\n\nПредпосылки: запущен minikube и установлен релиз fpchart (scripts/03-helm-fp-install.ps1); домен arch.homework резолвится на IP ingress-контроллера (minikube tunnel и/или запись в файле hosts). Локальный туннель на 127.0.0.1 не требуется.",
+    "description": "E2E сценарий Final Project: отмена заказа с уже подтверждёнными downstream-резервами.\n1. Товар со стоком 20, регистрация пользователя, депозит 100 руб.\n2. Заказ qty=1 -> 201 PLACED (резервы склада и доставки подтверждены синхронно внутри саги).\n3. POST /order/{id}/cancel -> 409 ORDER_STATE_CONFLICT.\n4. Заказ остаётся PLACED, резервы склада и доставки остаются CONFIRMED.\nПримечание: баланс после неудачной отмены не проверяется (известная особенность реализации: refund выполняется до проверки downstream-резервов). Уведомлений cancel не публикует — опроса нет.\n\nЗапуск: из fp/ выполнить scripts/06-run-postman-k8s.ps1 (newman) — ключ X-Internal-API-Key читается из fp/.env (или задаётся параметром -InternalApiKey) и передаётся newman через --env-var internalApiKey. Вручную: newman run postman/k8s/otus-hw9-cancel-conflict-k8s.postman_collection.json -e postman/k8s/k8s.postman_environment.json --env-var internalApiKey=<ключ из fp/.env>.\n\nПредпосылки: запущен minikube и установлен релиз fpchart (scripts/03-helm-fp-install.ps1); домен arch.finalproject резолвится на IP ingress-контроллера (minikube tunnel и/или запись в файле hosts). Локальный туннель на 127.0.0.1 не требуется.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "item": [
@@ -259,6 +259,49 @@
       "response": []
     },
     {
+      "name": "00b - Admin login (save admin JWT)",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n    \"email\": \"admin@admin.com\",\n    \"password\": \"admin\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": "{{baseUrl}}/api/v1/auth/login",
+        "description": "AuthService: получение access/refresh пары токенов; accessToken сохраняется в переменную коллекции adminToken"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Status code is 200\", function () { pm.response.to.have.status(200); });",
+              "",
+              "var jsonData = pm.response.json();",
+              "pm.collectionVariables.set(\"adminToken\", jsonData.accessToken);",
+              "",
+              "pm.test(\"Access token issued (admin)\", function () {",
+              "    pm.expect(jsonData.accessToken).to.be.a(\"string\").and.not.empty;",
+              "    pm.expect(jsonData.tokenType).to.eql(\"Bearer\");",
+              "});",
+              "console.log(\"JWT saved to collection variable 'adminToken'\");"
+            ]
+          }
+        }
+      ]
+    },
+    {
       "name": "07a - Probe existing courier reservations",
       "event": [
         {
@@ -317,7 +360,17 @@
             "{{deliveryDate}}"
           ]
         },
-        "description": "Зонд: какие резервы доставки уже есть на deliveryDate. 404 — ёмкость на дату ещё не задавалась (резервов нет, слот как в шаге 01). 200 — берём самый занятый слот и пересчитываем courierCount = reservedMax + 1."
+        "description": "Зонд: какие резервы доставки уже есть на deliveryDate. 404 — ёмкость на дату ещё не задавалась (резервов нет, слот как в шаге 01). 200 — берём самый занятый слот и пересчитываем courierCount = reservedMax + 1.",
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{adminToken}}",
+              "type": "string"
+            }
+          ]
+        }
       },
       "response": []
     },
@@ -368,7 +421,17 @@
             "{{deliveryDate}}"
           ]
         },
-        "description": "Установка ёмкости курьеров на дату доставки: courierCount = reservedMax + 1 из шага-зонда 07a (антиколлизия с резервами прошлых прогонов); при отсутствии слотов создаются дефолтные 10-12, 12-14, 14-16, 16-18."
+        "description": "Установка ёмкости курьеров на дату доставки: courierCount = reservedMax + 1 из шага-зонда 07a (антиколлизия с резервами прошлых прогонов); при отсутствии слотов создаются дефолтные 10-12, 12-14, 14-16, 16-18.",
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{adminToken}}",
+              "type": "string"
+            }
+          ]
+        }
       },
       "response": []
     },
@@ -425,7 +488,17 @@
             "products"
           ]
         },
-        "description": "Создание товара в WAREHOUSEService."
+        "description": "Создание товара в WAREHOUSEService.",
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{adminToken}}",
+              "type": "string"
+            }
+          ]
+        }
       },
       "response": []
     },
@@ -452,7 +525,6 @@
               "",
               "pm.test(\"User data matches sent data\", function () {",
               "    var jsonData = pm.response.json();",
-              "    pm.expect(jsonData.userName).to.eql(pm.collectionVariables.get(\"userName\"));",
               "    pm.expect(jsonData.email).to.eql(pm.collectionVariables.get(\"userEmail\"));",
               "});"
             ],
@@ -492,6 +564,49 @@
         "description": "Регистрация нового пользователя. USERService автоматически создаёт биллинг-аккаунт с балансом 0."
       },
       "response": []
+    },
+    {
+      "name": "09b - Login user (save JWT)",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n    \"email\": \"{{userEmail}}\",\n    \"password\": \"Password1!\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": "{{baseUrl}}/api/v1/auth/login",
+        "description": "AuthService: получение access/refresh пары токенов; accessToken сохраняется в переменную коллекции userToken"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Status code is 200\", function () { pm.response.to.have.status(200); });",
+              "",
+              "var jsonData = pm.response.json();",
+              "pm.collectionVariables.set(\"userToken\", jsonData.accessToken);",
+              "",
+              "pm.test(\"Access token issued (user)\", function () {",
+              "    pm.expect(jsonData.accessToken).to.be.a(\"string\").and.not.empty;",
+              "    pm.expect(jsonData.tokenType).to.eql(\"Bearer\");",
+              "});",
+              "console.log(\"JWT saved to collection variable 'userToken'\");"
+            ]
+          }
+        }
+      ]
     },
     {
       "name": "10 - Get billing account (Account auto-created with zero balance)",
@@ -549,7 +664,17 @@
             "{{userId}}"
           ]
         },
-        "description": "Получение биллинг-аккаунта пользователя по userId."
+        "description": "Получение биллинг-аккаунта пользователя по userId.",
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{userToken}}",
+              "type": "string"
+            }
+          ]
+        }
       },
       "response": []
     },
@@ -620,7 +745,17 @@
             "deposit"
           ]
         },
-        "description": "Пополнение баланса пользователя на 100 руб."
+        "description": "Пополнение баланса пользователя на 100 руб.",
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{userToken}}",
+              "type": "string"
+            }
+          ]
+        }
       },
       "response": []
     },
@@ -678,7 +813,17 @@
             "order"
           ]
         },
-        "description": "Создание заказа. Сага BILLING -> WAREHOUSE -> DELIVERY проходит синхронно."
+        "description": "Создание заказа. Сага BILLING -> WAREHOUSE -> DELIVERY проходит синхронно.",
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{userToken}}",
+              "type": "string"
+            }
+          ]
+        }
       },
       "response": []
     },
@@ -718,7 +863,17 @@
             "cancel"
           ]
         },
-        "description": "Отмена заказа с уже подтверждёнными downstream-резервами запрещена: 409 ORDER_STATE_CONFLICT."
+        "description": "Отмена заказа с уже подтверждёнными downstream-резервами запрещена: 409 ORDER_STATE_CONFLICT.",
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{userToken}}",
+              "type": "string"
+            }
+          ]
+        }
       },
       "response": []
     },
@@ -757,7 +912,17 @@
             "{{orderId}}"
           ]
         },
-        "description": "Получение заказа по ID."
+        "description": "Получение заказа по ID.",
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{userToken}}",
+              "type": "string"
+            }
+          ]
+        }
       },
       "response": []
     },
@@ -856,7 +1021,7 @@
   "variable": [
     {
       "key": "baseUrl",
-      "value": "http://arch.homework",
+      "value": "http://arch.finalproject",
       "type": "string"
     },
     {
@@ -933,6 +1098,16 @@
       "key": "orderId",
       "value": "",
       "type": "string"
+    },
+    {
+      "value": "",
+      "type": "default",
+      "key": "adminToken"
+    },
+    {
+      "value": "",
+      "type": "default",
+      "key": "userToken"
     }
   ]
 }

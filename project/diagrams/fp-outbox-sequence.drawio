@@ -1,0 +1,159 @@
+<mxfile host="Electron" agent="fp-docs">
+  <diagram id="fp-outbox-sequence" name="Transactional Outbox Sequence">
+    <mxGraphModel dx="1414" dy="841" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1720" pageHeight="1200" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="p1" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#08427B;strokeColor=#06315C;fontColor=#ffffff;fontStyle=1;" value="Оркестратор саги&#xa;(финализация заказа)" vertex="1">
+          <mxGeometry height="60" width="180" x="60" y="40" as="geometry" />
+        </mxCell>
+        <mxCell id="p2" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontColor=#333333;fontStyle=1;" value="PostgreSQL ORDER&#xa;(notification_outbox)" vertex="1">
+          <mxGeometry height="60" width="180" x="330" y="40" as="geometry" />
+        </mxCell>
+        <mxCell id="p3" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontStyle=1;" value="OutboxPublisher&#xa;(@Scheduled, ORDERService)" vertex="1">
+          <mxGeometry height="60" width="200" x="600" y="40" as="geometry" />
+        </mxCell>
+        <mxCell id="p4" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontStyle=1;" value="RabbitMQ" vertex="1">
+          <mxGeometry height="60" width="180" x="890" y="40" as="geometry" />
+        </mxCell>
+        <mxCell id="p5" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontStyle=1;" value="NOTIFICATIONService&#xa;(consumer)" vertex="1">
+          <mxGeometry height="60" width="200" x="1150" y="40" as="geometry" />
+        </mxCell>
+        <mxCell id="p6" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontColor=#333333;fontStyle=1;" value="PostgreSQL NOTIFICATION&#xa;(processed_messages)" vertex="1">
+          <mxGeometry height="60" width="220" x="1430" y="40" as="geometry" />
+        </mxCell>
+        <mxCell id="l1" edge="1" parent="1" style="endArrow=none;dashed=1;html=1;strokeColor=#666666;">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="150" y="100" as="sourcePoint" />
+            <mxPoint x="150" y="1010" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="l2" edge="1" parent="1" style="endArrow=none;dashed=1;html=1;strokeColor=#666666;">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="420" y="100" as="sourcePoint" />
+            <mxPoint x="420" y="1010" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="l3" edge="1" parent="1" style="endArrow=none;dashed=1;html=1;strokeColor=#666666;">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="700" y="100" as="sourcePoint" />
+            <mxPoint x="700" y="1010" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="l4" edge="1" parent="1" style="endArrow=none;dashed=1;html=1;strokeColor=#666666;">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="980" y="100" as="sourcePoint" />
+            <mxPoint x="980" y="1010" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="l5" edge="1" parent="1" style="endArrow=none;dashed=1;html=1;strokeColor=#666666;">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="1250" y="100" as="sourcePoint" />
+            <mxPoint x="1250" y="1010" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="l6" edge="1" parent="1" style="endArrow=none;dashed=1;html=1;strokeColor=#666666;">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="1540" y="100" as="sourcePoint" />
+            <mxPoint x="1540" y="1010" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="m1" edge="1" parent="1" style="html=1;endArrow=block;endFill=1;strokeColor=#000000;fontSize=11;" value="1: NotificationEvent (eventId) + финализация заказа - ОДНА транзакция (обе ветки: PLACED и FAILED)">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="150" y="150" as="sourcePoint" />
+            <mxPoint x="420" y="150" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="m2" edge="1" parent="1" style="html=1;endArrow=block;endFill=1;strokeColor=#000000;fontSize=11;" value="2: @Scheduled-вычитка: SELECT ... WHERE status = NEW (publish-delay ~1с)">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="700" y="230" as="sourcePoint" />
+            <mxPoint x="420" y="230" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="m3" edge="1" parent="1" style="html=1;endArrow=block;endFill=1;strokeColor=#438DD5;fontColor=#08427B;fontSize=11;strokeWidth=2;" value="3: convertAndSend → notifications.events / notification.event&#xa;(mandatory=true, correlationId=eventId, publisher-confirm-type=correlated)">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="700" y="300" as="sourcePoint" />
+            <mxPoint x="980" y="300" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="alt" parent="1" style="shape=umlFrame;whiteSpace=wrap;html=1;width=280;height=30;fillColor=none;strokeColor=#6c8ebf;fontColor=#6c8ebf;fontStyle=1;verticalAlign=top;align=left;" value="alt - результат доставки в брокер" vertex="1">
+          <mxGeometry height="320" width="660" x="380" y="330" as="geometry" />
+        </mxCell>
+        <mxCell id="m4" edge="1" parent="1" style="html=1;endArrow=block;endFill=1;dashed=1;strokeColor=#82b366;fontColor=#2f5b20;fontSize=11;strokeWidth=2;" value="ack (confirm)">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="980" y="380" as="sourcePoint" />
+            <mxPoint x="700" y="380" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="m5" edge="1" parent="1" style="html=1;endArrow=block;endFill=1;strokeColor=#82b366;fontColor=#2f5b20;fontSize=11;strokeWidth=2;" value="4a: status → SENT (sent_at)">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="700" y="425" as="sourcePoint" />
+            <mxPoint x="420" y="425" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="div1" edge="1" parent="1" style="endArrow=none;dashed=1;html=1;strokeColor=#999999;fontSize=10;fontColor=#666666;align=left;verticalAlign=bottom;" value="nack | returned">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="390" y="465" as="sourcePoint" />
+            <mxPoint x="1030" y="465" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="m6" edge="1" parent="1" style="html=1;endArrow=block;endFill=1;dashed=1;strokeColor=#d6b656;fontColor=#7a620f;fontSize=11;strokeWidth=2;" value="nack / returned (requeueByEventId)">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="980" y="500" as="sourcePoint" />
+            <mxPoint x="700" y="500" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="m7" edge="1" parent="1" style="html=1;endArrow=block;endFill=1;strokeColor=#d6b656;fontColor=#7a620f;fontSize=11;strokeWidth=2;" value="4b: возврат в status = NEW - повторная публикация">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint as="offset" />
+            <mxPoint x="700" y="545" as="sourcePoint" />
+            <mxPoint x="420" y="545" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="div2" edge="1" parent="1" style="endArrow=none;dashed=1;html=1;strokeColor=#999999;fontSize=10;fontColor=#666666;align=left;verticalAlign=bottom;" value="ошибка публикации">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="390" y="580" as="sourcePoint" />
+            <mxPoint x="1030" y="580" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="m8" edge="1" parent="1" style="html=1;endArrow=block;endFill=1;strokeColor=#B85450;fontColor=#B85450;fontSize=11;strokeWidth=2;" value="4c: attempts++; при attempts ≥ 5 → FAILED (ручное разбирательство)">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="700" y="620" as="sourcePoint" />
+            <mxPoint x="420" y="620" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="m9" edge="1" parent="1" style="html=1;endArrow=block;endFill=1;dashed=1;strokeColor=#82b366;fontSize=11;strokeWidth=2;" value="5: consume из notification.queue (concurrentConsumers=1)">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="980" y="710" as="sourcePoint" />
+            <mxPoint x="1250" y="710" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="m10" edge="1" parent="1" style="html=1;endArrow=block;endFill=1;strokeColor=#000000;fontSize=11;" value="6: дедупликация по eventId: маркер в processed_messages + уведомление одной транзакцией; повторная доставка = no-op">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="1250" y="770" as="sourcePoint" />
+            <mxPoint x="1540" y="770" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="m11" edge="1" parent="1" style="html=1;endArrow=block;endFill=1;dashed=1;strokeColor=#B85450;fontColor=#B85450;fontSize=11;strokeWidth=2;" value="7: ядовитое сообщение: 3 ретрая с backoff → исчерпание">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1340" y="840" />
+              <mxPoint x="1340" y="880" />
+            </Array>
+            <mxPoint x="1250" y="840" as="sourcePoint" />
+            <mxPoint x="1250" y="880" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="m12" edge="1" parent="1" style="html=1;endArrow=block;endFill=1;dashed=1;strokeColor=#B85450;fontColor=#B85450;fontSize=11;strokeWidth=2;" value="→ notification.queue.dlq (DlqCountingRecoverer)">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="1250" y="930" as="sourcePoint" />
+            <mxPoint x="980" y="930" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="note1" parent="1" style="shape=note;whiteSpace=wrap;html=1;size=15;fillColor=#FFF2CC;strokeColor=#d6b656;align=left;verticalAlign=middle;fontSize=12;" value="Идентичный механизм - в AUTH (auth_outbox → users.events / user.created) и USER (user_outbox → user.sync.events / user.profile.sync).&lt;br&gt;Очистка: ежечасно удаляются только SENT старше 7 дней (ретеншен); NEW и FAILED не удаляются никогда.&lt;br&gt;Повторные публикации безопасны: потребитель дедуплицирует по eventId (processed_messages), eventId outbox = eventId события." vertex="1">
+          <mxGeometry height="120" width="1340" x="60" y="1040" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

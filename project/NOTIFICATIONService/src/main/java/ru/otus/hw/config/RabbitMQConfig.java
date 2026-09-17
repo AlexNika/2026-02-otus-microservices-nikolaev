@@ -7,6 +7,7 @@ import org.springframework.amqp.core.BindingBuilder;
 import org.springframework.amqp.core.DirectExchange;
 import org.springframework.amqp.core.Queue;
 import org.springframework.amqp.core.QueueBuilder;
+import org.springframework.amqp.core.TopicExchange;
 import org.springframework.amqp.rabbit.annotation.EnableRabbit;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -17,7 +18,6 @@ import ru.otus.hw.config.properties.RabbitMQProperties;
 @Configuration
 @RequiredArgsConstructor
 public class RabbitMQConfig {
-
     private final RabbitMQProperties rabbitMQProperties;
 
     @Bean
@@ -63,5 +63,49 @@ public class RabbitMQConfig {
         return BindingBuilder.bind(notificationDlq())
                 .to(notificationExchange())
                 .with(rabbitMQProperties.getRoutingKey() + ".dlq");
+    }
+
+
+    @Bean
+    public TopicExchange userSyncExchange() {
+        return new TopicExchange(rabbitMQProperties.getUserSync().getExchangeName(), true, false);
+    }
+
+    /**
+     * Очередь репликации контактов пользователя. Устроена по образцу {@link #notificationQueue()}:
+     * ядовитые сообщения после исчерпания ретраев consumer'а отклоняются без requeue и через DLX
+     * (x-dead-letter-exchange на тот же exchange + x-dead-letter-routing-key) уходят в
+     * {@code notification.profile-sync.queue.dlq}.
+     */
+    @Bean
+    public Queue notificationProfileSyncQueue() {
+        RabbitMQProperties.UserSyncProperties userSync = rabbitMQProperties.getUserSync();
+        return QueueBuilder.durable(userSync.getQueueName())
+                .withArgument("x-queue-type", userSync.getQueueType())
+                .withArgument("x-dead-letter-exchange", userSync.getExchangeName())
+                .withArgument("x-dead-letter-routing-key", userSync.getRoutingKey() + ".dlq")
+                .build();
+    }
+
+    @Bean
+    public Queue notificationProfileSyncDlq() {
+        RabbitMQProperties.UserSyncProperties userSync = rabbitMQProperties.getUserSync();
+        return QueueBuilder.durable(userSync.getQueueName() + ".dlq")
+                .withArgument("x-queue-type", userSync.getQueueType())
+                .build();
+    }
+
+    @Bean
+    public Binding notificationProfileSyncBinding() {
+        return BindingBuilder.bind(notificationProfileSyncQueue())
+                .to(userSyncExchange())
+                .with(rabbitMQProperties.getUserSync().getRoutingKey());
+    }
+
+    @Bean
+    public Binding notificationProfileSyncDlqBinding() {
+        return BindingBuilder.bind(notificationProfileSyncDlq())
+                .to(userSyncExchange())
+                .with(rabbitMQProperties.getUserSync().getRoutingKey() + ".dlq");
     }
 }

@@ -89,6 +89,14 @@ public class DeliveryReservation extends AuditableEntity<Long> {
     private Long orderId;
 
     /**
+     * Владелец брони (userId из JWT создателя заказа, передаётся ORDERService при резервировании).
+     * Nullable: исторические брони до появления owner-поля и служебные сценарии без владельца.
+     * Используется ownership-проверками публичного API (владелец или ADMIN).
+     */
+    @Column(name = "user_id")
+    private Long userId;
+
+    /**
      * Слот доставки, в котором сделан резерв.
      */
     @NotNull

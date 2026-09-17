@@ -34,7 +34,6 @@ import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
 class IdempotencyServiceImplTest {
-
     private static final UUID KEY = UUID.fromString("3f2b8c1a-9d4e-4a7f-8b2c-6e1d0a9b5c3d");
 
     @Mock
@@ -55,7 +54,7 @@ class IdempotencyServiceImplTest {
     }
 
     private OrderCreateDto dto(Long userId, BigDecimal price) {
-        return new OrderCreateDto(userId, price, "test order", 11L, 3,
+        return new OrderCreateDto(price, "test order", 11L, 3,
                 LocalDate.now().plusDays(1), LocalTime.of(10, 0), LocalTime.of(12, 0));
     }
 
@@ -69,14 +68,14 @@ class IdempotencyServiceImplTest {
     }
 
     @Test
-    @DisplayName("requestHash: разный payload (цена/userId) -> разные хеши")
+    @DisplayName("requestHash: разный payload (цена/товар) -> разные хеши. "
+            + "userId не входит в hash - владелец сверяется отдельно по JWT")
     void shouldProduceDifferentHashForDifferentPayload() {
         String base = idempotencyService.requestHash(dto(7L, new BigDecimal("250.00")));
         String otherPrice = idempotencyService.requestHash(dto(7L, new BigDecimal("251.00")));
-        String otherUser = idempotencyService.requestHash(dto(8L, new BigDecimal("250.00")));
 
-        assertThat(base).isNotEqualTo(otherPrice).isNotEqualTo(otherUser);
-        assertThat(otherPrice).isNotEqualTo(otherUser);
+        assertThat(base).isNotEqualTo(otherPrice);
+        assertThat(idempotencyService.requestHash(dto(8L, new BigDecimal("250.00")))).isEqualTo(base);
     }
 
     @Test

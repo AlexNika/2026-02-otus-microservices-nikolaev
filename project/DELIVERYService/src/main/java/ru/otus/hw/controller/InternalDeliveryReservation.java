@@ -63,7 +63,7 @@ public interface InternalDeliveryReservation {
      * Получение текущего состояния резерва по `orderId`.
      * Используется `OrderService` для проверки статуса после тайм-аутов и принятия решения о продолжении саги или компенсации.<br>
      * Коды ошибок:<br>
-     * `404` — резерв не найден.
+     * `404` - резерв не найден.
      *
      * @param orderId Long orderId
      * @return ResponseEntity DeliveryReservationResponse dto

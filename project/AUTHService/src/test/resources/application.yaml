@@ -1,0 +1,8 @@
+logging:
+  config: classpath:logback-spring.xml
+  level:
+    root: INFO
+    ru.otus.hw: DEBUG
+    org.springframework.security: INFO
+    org.mockito.Mockito: INFO
+

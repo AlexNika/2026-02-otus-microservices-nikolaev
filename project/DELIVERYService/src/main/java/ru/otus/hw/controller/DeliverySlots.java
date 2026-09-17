@@ -5,6 +5,7 @@ import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
+import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.ResponseEntity;
@@ -18,6 +19,7 @@ import java.time.LocalDate;
 
 @RequestMapping("/api/v1/delivery")
 @Tag(name = "Delivery Slots API", description = "REST API for browsing available delivery slots")
+@SecurityRequirement(name = "basicAuth")
 public interface DeliverySlots {
 
     /**
@@ -33,13 +35,15 @@ public interface DeliverySlots {
     @GetMapping("/slots")
     @Operation(summary = "Get available delivery slots",
             description = "Retrieves the list of time slots for a date with an availability flag. "
-                    + "Does not expose internal data such as courierCount or reservedCount — "
+                    + "Does not expose internal data such as courierCount or reservedCount - "
                     + "only the slot and the available flag are visible. "
                     + "If no slots are configured for the date, returns 200 with an empty list.")
     @ApiResponses(value = {
             @ApiResponse(responseCode = "200", description = "List of slots retrieved",
                     content = @Content(schema = @Schema(implementation = AvailableSlotsResponse.class))),
             @ApiResponse(responseCode = "400", description = "Invalid date format or missing date parameter",
+                    content = @Content(schema = @Schema(implementation = ErrorDto.class))),
+            @ApiResponse(responseCode = "401", description = "Authentication required",
                     content = @Content(schema = @Schema(implementation = ErrorDto.class)))
     })
     ResponseEntity<AvailableSlotsResponse> getAvailableSlots(

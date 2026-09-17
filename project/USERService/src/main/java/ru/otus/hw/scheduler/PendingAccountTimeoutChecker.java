@@ -7,6 +7,7 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import ru.otus.hw.client.BillingServiceClient;
 import ru.otus.hw.config.properties.ActivationProperties;
+import ru.otus.hw.exception.BillingServiceException;
 import ru.otus.hw.models.AccountStatus;
 import ru.otus.hw.models.User;
 import ru.otus.hw.producer.NotificationEventPublisher;
@@ -17,9 +18,9 @@ import java.util.List;
 
 /**
  * Контроль активации биллинг-аккаунтов: PENDING-пользователи старше тайм-аута проверяются
- * read-only запросом в BILLINGService. Аккаунт появился - ACTIVE (самовосстановление);
- * аккаунта нет (404) - BLOCKED ({@code locked=true}, логин запрещён); сбой проверки -
- * fail-open: пользователь пропускается и повторяется на следующем тике.
+ * read-only запросом в BILLINGService (через внутренний контур /internal). Аккаунт появился -
+ * ACTIVE (самовосстановление); аккаунта нет (404) - BLOCKED; сбой проверки - fail-open:
+ * пользователь пропускается и повторяется на следующем тике.
  */
 @Slf4j
 @Component
@@ -47,9 +48,11 @@ public class PendingAccountTimeoutChecker {
         for (User user : pendingUsers) {
             try {
                 processUser(user);
+            } catch (BillingServiceException e) {
+                log.warn("Activation check failed for userId={}, skipping (fail-open, retry on next tick): {}",
+                        user.getId(), e.getMessage());
             } catch (RuntimeException e) {
-                log.warn("Activation check failed for userId={}, skipping (fail-open, retry on next tick)",
-                        user.getId(), e);
+                log.error("Unexpected error while checking activation for userId={}", user.getId(), e);
             }
         }
     }
@@ -57,7 +60,6 @@ public class PendingAccountTimeoutChecker {
     private void processUser(@NonNull User user) {
         if (billingServiceClient.accountExists(user.getId())) {
             user.setAccountStatus(AccountStatus.ACTIVE);
-            user.setLocked(false);
             userRepository.save(user);
             log.info("Billing account found after registration: userId={} activated (self-healing)",
                     user.getId());
@@ -65,7 +67,6 @@ public class PendingAccountTimeoutChecker {
                     "Ваш аккаунт полностью активирован");
         } else {
             user.setAccountStatus(AccountStatus.BLOCKED);
-            user.setLocked(true);
             userRepository.save(user);
             log.error("Billing account was not created within the timeout: userId={} BLOCKED", user.getId());
             notificationEventPublisher.publish(user.getId(), "ACCOUNT_CREATION_FAILED",

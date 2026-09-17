@@ -1,6 +1,4 @@
 logging:
-  file:
-    name: ./logs/order-service-test.log
   config: classpath:logback-spring.xml
   level:
     root: INFO

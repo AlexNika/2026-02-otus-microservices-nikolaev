@@ -3,12 +3,6 @@ plugins {
     id 'com.diffplug.spotless' version '8.8.0'
 }
 
-spotless {
-    java {
-        googleJavaFormat('1.36.1')
-    }
-}
-
 group = 'ru.otus.hw'
 version = '0.0.1-SNAPSHOT'
 
@@ -25,4 +19,17 @@ dependencies {
 
 test {
     useJUnitPlatform()
+}
+
+subprojects {
+    apply plugin: 'checkstyle'
+
+    checkstyle {
+        toolVersion = "13.8.0"
+        configFile = file("${project(':COMMONDomain').projectDir}/src/main/resources/checkstyle/otus_checks.xml")
+    }
+
+    tasks.withType(Checkstyle).configureEach {
+        ignoreFailures = true
+    }
 }

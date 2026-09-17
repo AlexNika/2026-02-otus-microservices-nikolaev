@@ -5,6 +5,7 @@ import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
+import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import org.springframework.format.annotation.DateTimeFormat;
@@ -22,6 +23,7 @@ import java.time.LocalDate;
 
 @RequestMapping("/api/v1/delivery/courier-capacity")
 @Tag(name = "Delivery Courier Capacity API", description = "REST API for courier capacity management")
+@SecurityRequirement(name = "basicAuth")
 public interface DeliveryCapacity {
 
     /**
@@ -44,6 +46,10 @@ public interface DeliveryCapacity {
             @ApiResponse(responseCode = "200", description = "Courier capacity set successfully",
                     content = @Content(schema = @Schema(implementation = CapacityResponse.class))),
             @ApiResponse(responseCode = "400", description = "Validation failed, e.g. overlapping slots or invalid time",
+                    content = @Content(schema = @Schema(implementation = ErrorDto.class))),
+            @ApiResponse(responseCode = "401", description = "Authentication required",
+                    content = @Content(schema = @Schema(implementation = ErrorDto.class))),
+            @ApiResponse(responseCode = "403", description = "Access denied (ADMIN role required)",
                     content = @Content(schema = @Schema(implementation = ErrorDto.class))),
             @ApiResponse(responseCode = "409",
                     description = "New courier capacity is less than already actively reserved in one of the slots",
@@ -70,6 +76,8 @@ public interface DeliveryCapacity {
             @ApiResponse(responseCode = "200", description = "Courier capacity found",
                     content = @Content(schema = @Schema(implementation = CapacityResponse.class))),
             @ApiResponse(responseCode = "400", description = "Invalid date format",
+                    content = @Content(schema = @Schema(implementation = ErrorDto.class))),
+            @ApiResponse(responseCode = "401", description = "Authentication required",
                     content = @Content(schema = @Schema(implementation = ErrorDto.class)))
     })
     ResponseEntity<CapacityResponse> getCapacity(

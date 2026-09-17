@@ -7,13 +7,16 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
+import org.springframework.context.annotation.Import;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
+import ru.otus.hw.config.SecurityConfig;
 import ru.otus.hw.config.properties.InternalApiKeyConfig;
 import ru.otus.hw.controller.InternalProductReservationResource;
+import ru.otus.hw.security.JwtTokenProvider;
 import ru.otus.hw.service.ProductReservationService;
 
 import java.util.Set;
@@ -27,8 +30,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @WebMvcTest(InternalProductReservationResource.class)
+@Import(SecurityConfig.class)
 class GlobalExceptionHandlerTest {
-
     private static final String VALID_API_KEY = "testInternalApiKey";
 
     private static final String RESERVE_URL = "/internal/products/reservations";
@@ -46,6 +49,9 @@ class GlobalExceptionHandlerTest {
 
     @MockitoBean
     private ProductReservationService productReservationService;
+
+    @MockitoBean
+    private JwtTokenProvider jwtTokenProvider;
 
     @Test
     @DisplayName("должен вернуть 400 с кодом VALIDATION_FAILED при ConstraintViolationException")
@@ -132,7 +138,6 @@ class GlobalExceptionHandlerTest {
                         .header("X-Internal-API-Key", VALID_API_KEY)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(
-                                // language=text
                                 "{invalid json"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.status").value(400))

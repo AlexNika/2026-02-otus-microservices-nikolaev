@@ -42,6 +42,8 @@ class InternalDeliveryReservationServiceImplTest {
 
     private static final Long ORDER_ID = 100L;
 
+    private static final Long USER_ID = 7L;
+
     private static final LocalDate DATE = LocalDate.of(2026, 8, 10);
 
     private static final LocalTime SLOT_START = LocalTime.of(10, 0);
@@ -49,7 +51,7 @@ class InternalDeliveryReservationServiceImplTest {
     private static final LocalTime SLOT_END = LocalTime.of(12, 0);
 
     private static final ReserveDeliveryRequest REQUEST = new ReserveDeliveryRequest(
-            ORDER_ID, DATE, SLOT_START, SLOT_END);
+            ORDER_ID, DATE, SLOT_START, SLOT_END, USER_ID);
 
     private static final DeliveryReservationResponse RESPONSE = DeliveryReservationResponse.builder()
             .reservationId(55L)

@@ -120,6 +120,26 @@ services:
     networks:
       - fp_delivery_service_network
 
+  postgres_auth_service:
+    image: postgres:16.11
+    restart: always
+    ports:
+      - "5438:5432"
+    volumes:
+      - postgres_data_auth_service:/var/lib/postgresql
+    environment:
+      POSTGRES_USER: ${SPRING_DATASOURCE_USERNAME_AUTH_SERVICE:-fpuser_auth_service}
+      POSTGRES_PASSWORD: ${SPRING_DATASOURCE_PASSWORD_AUTH_SERVICE:-fppass_auth_service}
+      POSTGRES_DB: ${SPRING_DATASOURCE_DBNAME_AUTH_SERVICE:-auth_db}
+    healthcheck:
+      test: pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB
+      interval: 10s
+      timeout: 5s
+      start_period: 10s
+      retries: 5
+    networks:
+      - fp_auth_service_network
+
   rabbitmq:
     image: rabbitmq:4.1.3-management
     container_name: rabbitmq
@@ -145,6 +165,30 @@ services:
     networks:
       - rabbitmq_network
 
+  tempo:
+    image: grafana/tempo:latest
+    container_name: tempo
+    restart: always
+    user: "10001:10001"
+    ports:
+      - "4318:4318"
+      - "4317:4317"
+      - "3200:3200"
+    command:
+      - --config.file=/etc/tempo-config.yml
+    volumes:
+      - ./tempo-config.yml:/etc/tempo-config.yml:ro
+      - tempo_data:/var/tempo
+    healthcheck:
+      test:
+        [ "CMD-SHELL", "curl -f http://localhost:3200/status || exit 1" ]
+      interval: 15s
+      timeout: 10s
+      start_period: 60s
+      retries: 8
+    networks:
+      - fp_monitoring_network
+
 volumes:
   postgres_data_user_service:
   postgres_data_billing_service:
@@ -152,7 +196,9 @@ volumes:
   postgres_data_notification_service:
   postgres_data_warehouse_service:
   postgres_data_delivery_service:
+  postgres_data_auth_service:
   rabbitmq_data:
+  tempo_data:
 
 networks:
   fp_user_service_network:
@@ -173,6 +219,12 @@ networks:
   fp_delivery_service_network:
     name: fp_delivery_service_network
     driver: bridge
+  fp_auth_service_network:
+    name: fp_auth_service_network
+    driver: bridge
   rabbitmq_network:
     name: rabbitmq_network
+    driver: bridge
+  fp_monitoring_network:
+    name: fp_monitoring_network
     driver: bridge

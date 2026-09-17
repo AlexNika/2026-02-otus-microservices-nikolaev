@@ -13,6 +13,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import ru.otus.hw.dto.NotificationEvent;
 import ru.otus.hw.models.OutboxEvent;
 import ru.otus.hw.repository.OutboxEventRepository;
+import ru.otus.hw.tracing.W3CTraceContextAdapter;
 
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -35,6 +36,9 @@ class NotificationEventPublisherTest {
     @Mock
     private OutboxEventRepository outboxEventRepository;
 
+    @Mock
+    private W3CTraceContextAdapter traceContextAdapter;
+
     private NotificationEventPublisher publisher;
 
     @BeforeEach
@@ -42,7 +46,7 @@ class NotificationEventPublisherTest {
         ObjectMapper objectMapper = new ObjectMapper()
                 .registerModule(new JavaTimeModule())
                 .disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
-        publisher = new NotificationEventPublisher(outboxEventRepository, objectMapper);
+        publisher = new NotificationEventPublisher(outboxEventRepository, objectMapper, traceContextAdapter);
     }
 
     private NotificationEvent event() {

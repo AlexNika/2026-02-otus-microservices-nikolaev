@@ -1,0 +1,2879 @@
+{
+  "info": {
+    "_postman_id": "otus-fp-circuit-breaker-k8s",
+    "name": "OTUS - Microservices Final Project - Circuit Breaker (Resilience4j + Chaos Monkey) - k8s",
+    "description": "Circuit Breaker scenarios: fault injection via /actuator/chaosmonkey (ADMIN only), slow failures with retries, fast 503 CIRCUIT_BREAKER_OPEN when the circuit is open, recovery and control orders (BILLING/WAREHOUSE/DELIVERY blocks). K8s mirror: public routes go through the ingress (baseUrl); chaos endpoints are NOT published by the ingress, so chaosBillingUrl/chaosWarehouseUrl/chaosDeliveryUrl expect kubectl port-forward targets - the k8s run of this collection is postponed.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://arch.finalproject"
+    },
+    {
+      "key": "chaosBillingUrl",
+      "value": "http://localhost:8001"
+    },
+    {
+      "key": "chaosWarehouseUrl",
+      "value": "http://localhost:8004"
+    },
+    {
+      "key": "chaosDeliveryUrl",
+      "value": "http://localhost:8005"
+    },
+    {
+      "key": "runBase",
+      "value": ""
+    },
+    {
+      "key": "rand",
+      "value": ""
+    },
+    {
+      "key": "deliveryDate",
+      "value": ""
+    },
+    {
+      "key": "slotStart",
+      "value": ""
+    },
+    {
+      "key": "slotEnd",
+      "value": ""
+    },
+    {
+      "key": "sku",
+      "value": ""
+    },
+    {
+      "key": "manufacturerArticle",
+      "value": ""
+    },
+    {
+      "key": "productId",
+      "value": ""
+    },
+    {
+      "key": "userName",
+      "value": ""
+    },
+    {
+      "key": "userEmail",
+      "value": ""
+    },
+    {
+      "key": "userId",
+      "value": ""
+    },
+    {
+      "key": "orderId",
+      "value": ""
+    },
+    {
+      "key": "balanceBefore",
+      "value": ""
+    },
+    {
+      "key": "pollAttempt",
+      "value": "1"
+    },
+    {
+      "key": "accountPollAttempt",
+      "value": "1"
+    },
+    {
+      "key": "depositPollAttempt",
+      "value": "1"
+    },
+    {
+      "key": "adminToken",
+      "value": ""
+    },
+    {
+      "key": "userToken",
+      "value": ""
+    }
+  ],
+  "item": [
+    {
+      "name": "01 - Health USERService",
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "exec": [
+              "// Шаг 00: уникальные данные прогона, чтобы коллекции можно было запускать повторно",
+              "var runBase = Date.now();",
+              "var rand = Math.floor(Math.random() * 100000);",
+              "pm.collectionVariables.set(\"runBase\", String(runBase));",
+              "pm.collectionVariables.set(\"rand\", String(rand));",
+              "",
+              "// Уникальная дата доставки: завтра + (runBase % 28) дней.",
+              "// Собираем из локальных getFullYear/getMonth/getDate — toISOString() сдвигает дату из-за UTC.",
+              "var delivery = new Date();",
+              "delivery.setDate(delivery.getDate() + 1 + (runBase % 28));",
+              "function pad(n) { return n < 10 ? \"0\" + n : \"\" + n; }",
+              "var deliveryDate = delivery.getFullYear() + \"-\" + pad(delivery.getMonth() + 1) + \"-\" + pad(delivery.getDate());",
+              "pm.collectionVariables.set(\"deliveryDate\", deliveryDate);",
+              "",
+              "pm.collectionVariables.set(\"slotStart\", \"12:00\");",
+              "pm.collectionVariables.set(\"slotEnd\", \"14:00\");",
+              "",
+              "pm.collectionVariables.set(\"sku\", \"SKU-\" + runBase + \"-\" + rand);",
+              "pm.collectionVariables.set(\"manufacturerArticle\", \"ART-\" + runBase + \"-\" + rand);",
+              "pm.collectionVariables.set(\"userName\", \"user\" + runBase + \"_\" + rand);",
+              "pm.collectionVariables.set(\"userEmail\", \"user\" + runBase + \"_\" + rand + \"@test.com\");",
+              "console.log(\"HW9 run: base=\" + runBase + \", deliveryDate=\" + deliveryDate + \", sku=\" + pm.collectionVariables.get(\"sku\"));"
+            ],
+            "type": "text/javascript"
+          }
+        },
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Status code is 200\", function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.test(\"Body has status UP\", function () {",
+              "    var jsonData = pm.response.json();",
+              "    pm.expect(jsonData.status).to.eql(\"UP\");",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/health/user",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "actuator",
+            "health"
+          ]
+        },
+        "description": "Проверка, что USERService запущен (порт 8000)."
+      },
+      "response": []
+    },
+    {
+      "name": "02 - Health BILLINGService",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Status code is 200\", function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.test(\"Body has status UP\", function () {",
+              "    var jsonData = pm.response.json();",
+              "    pm.expect(jsonData.status).to.eql(\"UP\");",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/health/billing",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "actuator",
+            "health"
+          ]
+        },
+        "description": "Проверка, что BILLINGService запущен (порт 8001)."
+      },
+      "response": []
+    },
+    {
+      "name": "03 - Health ORDERService",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Status code is 200\", function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.test(\"Body has status UP\", function () {",
+              "    var jsonData = pm.response.json();",
+              "    pm.expect(jsonData.status).to.eql(\"UP\");",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/health/order",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "actuator",
+            "health"
+          ]
+        },
+        "description": "Проверка, что ORDERService запущен (порт 8002)."
+      },
+      "response": []
+    },
+    {
+      "name": "04 - Health NOTIFICATIONService",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Status code is 200\", function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.test(\"Body has status UP\", function () {",
+              "    var jsonData = pm.response.json();",
+              "    pm.expect(jsonData.status).to.eql(\"UP\");",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/health/notification",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "actuator",
+            "health"
+          ]
+        },
+        "description": "Проверка, что NOTIFICATIONService запущен (порт 8003)."
+      },
+      "response": []
+    },
+    {
+      "name": "05 - Health WAREHOUSEService",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Status code is 200\", function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.test(\"Body has status UP\", function () {",
+              "    var jsonData = pm.response.json();",
+              "    pm.expect(jsonData.status).to.eql(\"UP\");",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/health/warehouse",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "actuator",
+            "health"
+          ]
+        },
+        "description": "Проверка, что WAREHOUSEService запущен (порт 8004)."
+      },
+      "response": []
+    },
+    {
+      "name": "06 - Health DELIVERYService",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Status code is 200\", function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.test(\"Body has status UP\", function () {",
+              "    var jsonData = pm.response.json();",
+              "    pm.expect(jsonData.status).to.eql(\"UP\");",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/health/delivery",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "actuator",
+            "health"
+          ]
+        },
+        "description": "Проверка, что DELIVERYService запущен (порт 8005)."
+      },
+      "response": []
+    },
+    {
+      "name": "00b - Admin login (save admin JWT)",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n    \"email\": \"admin@admin.com\",\n    \"password\": \"admin\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": "{{baseUrl}}/api/v1/auth/login",
+        "description": "AuthService: получение access/refresh пары токенов; accessToken сохраняется в переменную коллекции adminToken"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Status code is 200\", function () { pm.response.to.have.status(200); });",
+              "",
+              "var jsonData = pm.response.json();",
+              "pm.collectionVariables.set(\"adminToken\", jsonData.accessToken);",
+              "",
+              "pm.test(\"Access token issued (admin)\", function () {",
+              "    pm.expect(jsonData.accessToken).to.be.a(\"string\").and.not.empty;",
+              "    pm.expect(jsonData.tokenType).to.eql(\"Bearer\");",
+              "});",
+              "console.log(\"JWT saved to collection variable 'adminToken'\");"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "07a - Probe existing courier reservations",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Probe response is 200 or 404\", function () {",
+              "    pm.expect(pm.response.code).to.be.oneOf([200, 404]);",
+              "});",
+              "",
+              "if (pm.response.code === 404) {",
+              "    pm.collectionVariables.set(\"courierCount\", \"10\");",
+              "    console.log(\"Capacity probe: 404, courierCount=10\");",
+              "} else {",
+              "    var jsonData = pm.response.json();",
+              "    var slots = jsonData.slots || [];",
+              "    pm.test(\"Capacity response has slots\", function () {",
+              "        pm.expect(slots).to.be.an(\"array\").that.is.not.empty;",
+              "    });",
+              "    var reservedMax = slots.reduce(function (m, s) {",
+              "        return Math.max(m, s.reservedCount || 0);",
+              "    }, 0);",
+              "    pm.collectionVariables.set(\"courierCount\", String(reservedMax + 10));",
+              "    console.log(\"Capacity probe: 200, reservedMax=\" + reservedMax + \", courierCount=\" + (reservedMax + 10));",
+              "}"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/delivery/courier-capacity/{{deliveryDate}}",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "delivery",
+            "courier-capacity",
+            "{{deliveryDate}}"
+          ]
+        },
+        "description": "Зонд занятости слотов на дату доставки для расчёта бесконфликтного courierCount.",
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{adminToken}}",
+              "type": "string"
+            }
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "07 - Set courier capacity for deliveryDate (courierCount из зонда)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Status code is 200\", function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "console.log(\"Courier capacity set for \" + pm.collectionVariables.get(\"deliveryDate\") + \" (slots 10-12/12-14/14-16/16-18)\");"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "PUT",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n    \"courierCount\": {{courierCount}}\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/delivery/courier-capacity/{{deliveryDate}}",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "delivery",
+            "courier-capacity",
+            "{{deliveryDate}}"
+          ]
+        },
+        "description": "Создание ёмкости курьеров на дату доставки: courierCount из зонда 07a (reservedMax + 1), создаются дефолтные слоты 10-12, 12-14, 14-16, 16-18.",
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{adminToken}}",
+              "type": "string"
+            }
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "08 - Create product (availableQuantity=100)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Status code is 201\", function () {",
+              "    pm.response.to.have.status(201);",
+              "});",
+              "",
+              "pm.test(\"Response body has id field\", function () {",
+              "    var jsonData = pm.response.json();",
+              "    pm.expect(jsonData).to.have.property(\"id\");",
+              "    pm.expect(jsonData.id).to.be.a(\"number\");",
+              "});",
+              "",
+              "var jsonData = pm.response.json();",
+              "pm.collectionVariables.set(\"productId\", jsonData.id);",
+              "console.log(\"Product created with ID: \" + jsonData.id);"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\"manufacturerArticle\": \"{{manufacturerArticle}}\", \"sku\": \"{{sku}}\", \"name\": \"CB scenario product\", \"description\": \"Circuit Breaker postman scenario product\", \"price\": 10.00, \"productStock\": {\"availableQuantity\": 100, \"reservedQuantity\": 0}}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/products",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "products"
+          ]
+        },
+        "description": "Создание товара в WAREHOUSEService.",
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{adminToken}}",
+              "type": "string"
+            }
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "09 - Register user (userId, billing account auto-created)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test(\"Status code is 201\", function () {",
+              "    pm.response.to.have.status(201);",
+              "});",
+              "",
+              "pm.test(\"Response body has id field\", function () {",
+              "    var jsonData = pm.response.json();",
+              "    pm.expect(jsonData).to.have.property(\"id\");",
+              "    pm.expect(jsonData.id).to.be.a(\"number\");",
+              "});",
+              "",
+              "var jsonData = pm.response.json();",
+              "pm.collectionVariables.set(\"userId\", jsonData.id);",
+              "console.log(\"User registered with ID: \" + jsonData.id + \" (billing account auto-created)\");",
+              "",
+              "pm.test(\"User data matches sent data\", function () {",
+              "    var jsonData = pm.response.json();",
+              "    pm.expect(jsonData.email).to.eql(pm.collectionVariables.get(\"userEmail\"));",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n    \"userName\": \"{{userName}}\",\n    \"firstName\": \"First_userId\",\n    \"lastName\": \"Last_userId\",\n    \"email\": \"{{userEmail}}\",\n    \"password\": \"Password1!\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/auth/register",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "auth",
+            "register"
+          ]
+        },
+        "description": "Регистрация нового пользователя. USERService автоматически создаёт биллинг-аккаунт с балансом 0."
+      },
+      "response": []
+    },
+    {
+      "name": "09b - Login user (save JWT)",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n    \"email\": \"{{userEmail}}\",\n    \"password\": \"Password1!\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": "{{baseUrl}}/api/v1/auth/login",
+        "description": "AuthService: получение access/refresh пары токенов; accessToken сохраняется в переменную коллекции userToken"
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"Status code is 200\", function () { pm.response.to.have.status(200); });",
+              "",
+              "var jsonData = pm.response.json();",
+              "pm.collectionVariables.set(\"userToken\", jsonData.accessToken);",
+              "",
+              "pm.test(\"Access token issued (user)\", function () {",
+              "    pm.expect(jsonData.accessToken).to.be.a(\"string\").and.not.empty;",
+              "    pm.expect(jsonData.tokenType).to.eql(\"Bearer\");",
+              "});",
+              "console.log(\"JWT saved to collection variable 'userToken'\");"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "10 - Get billing account (Account auto-created with zero balance)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "// Billing account is created asynchronously (USER publishes UserCreatedEvent via outbox ->",
+              "// BILLING consumer creates the account), so right after registration a 404 is possible:",
+              "// poll with the same request up to maxAttempts.",
+              "var maxAttempts = 15;",
+              "var attempt = parseInt(pm.collectionVariables.get(\"accountPollAttempt\") || \"1\", 10);",
+              "var expectedUserId = Number(pm.collectionVariables.get(\"userId\"));",
+              "",
+              "if (pm.response.code === 200) {",
+              "    pm.test(\"Status code is 200\", function () {",
+              "        pm.response.to.have.status(200);",
+              "    });",
+              "    pm.test(\"Account auto-created with zero balance\", function () {",
+              "        var jsonData = pm.response.json();",
+              "        pm.expect(Number(jsonData.userId)).to.eql(expectedUserId);",
+              "        pm.expect(Number(jsonData.balance)).to.eql(0);",
+              "        pm.expect(jsonData.enabled).to.be.true;",
+              "    });",
+              "    pm.collectionVariables.set(\"accountPollAttempt\", \"1\");",
+              "} else if (pm.response.code === 404 && attempt < maxAttempts) {",
+              "    console.log(\"Attempt \" + attempt + \"/\" + maxAttempts + \": billing account not created yet, retrying...\");",
+              "    pm.collectionVariables.set(\"accountPollAttempt\", String(attempt + 1));",
+              "    postman.setNextRequest(pm.info.requestName);",
+              "} else {",
+              "    pm.collectionVariables.set(\"accountPollAttempt\", \"1\");",
+              "    pm.test(\"Billing account exists (async creation)\", function () {",
+              "        pm.expect(pm.response.code, \"Billing account was not created within \" + maxAttempts + \" attempts\").to.eql(200);",
+              "    });",
+              "}"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/account/user/{{userId}}",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "v1",
+            "account",
+            "user",
+            "{{userId}}"
+          ]
+        },
+        "description": "Получение биллинг-аккаунта пользователя по userId.",
+        "auth": {
+          "type": "bearer",
+          "bearer": [
+            {
+              "key": "token",
+              "value": "{{userToken}}",
+              "type": "string"
+            }
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "10b - Deposit 10000 RUB",
+      "event": [
+        {
+          "script": {
+            "exec": [
+              "// Account is created async after registration: poll until deposit succeeds.",
+              "var maxAttempts = 15;",
+              "var attempt = parseInt(pm.collectionVariables.get(\"depositPollAttempt\") || \"1\", 10);",
+              "",
+              "if (pm.response.code === 200) {",
+              "    pm.test(\"Status code is 200\", function () {",
+              "        pm.response.to.have.status(200);",
+              "    });",
+              "    pm.test(\"Balance is 10000 after deposit\", function () {",
+              "        pm.expect(Number(pm.response.json().newBalance)).to.eql(10000);",
+              "    });",
+              "    pm.collectionVariables.set(\"depositPollAttempt\", \"1\");",
+              "} else if (pm.response.code === 404 && attempt < maxAttempts) {",
+              "    console.log(\"Attempt \" + attempt + \"/\" + maxAttempts + \": billing account not ready, retrying deposit...\");",
+              "    pm.collectionVariables.set(\"depositPollAttempt\", String(attempt + 1));",
+              "    postman.setNextRequest(pm.info.requestName);",
+              "} else {",
+              "    pm.collectionVariables.set(\"depositPollAttempt\", \"1\");",
+              "    pm.test(\"Deposit succeeded (billing account ready)\", function () {",
+              "        pm.expect(pm.response.code, \"Deposit failed within \" + maxAttempts + \" attempts\").to.eql(200);",
+              "    });",
+              "}"
+            ],
+            "type": "text/javascript"
+          },
+          "listen": "test"
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          },
+          "raw": "{\"amount\": 10000}",
+          "mode": "raw"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/account/{{userId}}/deposit",
+          "path": [
+            "api",
+            "v1",
+            "account",
+            "{{userId}}",
+            "deposit"
+          ],
+          "host": [
+            "{{baseUrl}}"
+          ]
+        },
+        "description": "Top-up before chaos scenarios.",
+        "auth": {
+          "bearer": [
+            {
+              "type": "string",
+              "value": "{{userToken}}",
+              "key": "token"
+            }
+          ],
+          "type": "bearer"
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "A0a - BILLING: ensure assaults disabled (reset guard)",
+      "event": [
+        {
+          "script": {
+            "exec": [
+              "pm.test(\"Status code is 200\", function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "pm.test(\"Assault config updated\", function () {",
+              "    pm.expect(pm.response.text()).to.contain(\"Assault config has changed\");",
+              "});"
+            ],
+            "type": "text/javascript"
+          },
+          "listen": "test"
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          },
+          "raw": "{\"exceptionsActive\": false, \"latencyActive\": false, \"level\": 1}",
+          "mode": "raw"
+        },
+        "url": {
+          "raw": "{{chaosBillingUrl}}/actuator/chaosmonkey/assaults",
+          "path": [
+            "actuator",
+            "chaosmonkey",
+            "assaults"
+          ],
+          "host": [
+            "{{baseUrl}}"
+          ]
+        },
+        "description": "Chaos assaults management (ADMIN JWT only): exceptionsActive=false.",
+        "auth": {
+          "bearer": [
+            {
+              "type": "string",
+              "value": "{{adminToken}}",
+              "key": "token"
+            }
+          ],
+          "type": "bearer"
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "A0b - WAREHOUSE: ensure assaults disabled (reset guard)",
+      "event": [
+        {
+          "script": {
+            "exec": [
+              "pm.test(\"Status code is 200\", function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "pm.test(\"Assault config updated\", function () {",
+              "    pm.expect(pm.response.text()).to.contain(\"Assault config has changed\");",
+              "});"
+            ],
+            "type": "text/javascript"
+          },
+          "listen": "test"
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          },
+          "raw": "{\"exceptionsActive\": false, \"latencyActive\": false, \"level\": 1}",
+          "mode": "raw"
+        },
+        "url": {
+          "raw": "{{chaosWarehouseUrl}}/actuator/chaosmonkey/assaults",
+          "path": [
+            "actuator",
+            "chaosmonkey",
+            "assaults"
+          ],
+          "host": [
+            "{{baseUrl}}"
+          ]
+        },
+        "description": "Chaos assaults management (ADMIN JWT only): exceptionsActive=false.",
+        "auth": {
+          "bearer": [
+            {
+              "type": "string",
+              "value": "{{adminToken}}",
+              "key": "token"
+            }
+          ],
+          "type": "bearer"
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "A0c - DELIVERY: ensure assaults disabled (reset guard)",
+      "event": [
+        {
+          "script": {
+            "exec": [
+              "pm.test(\"Status code is 200\", function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "pm.test(\"Assault config updated\", function () {",
+              "    pm.expect(pm.response.text()).to.contain(\"Assault config has changed\");",
+              "});"
+            ],
+            "type": "text/javascript"
+          },
+          "listen": "test"
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          },
+          "raw": "{\"exceptionsActive\": false, \"latencyActive\": false, \"level\": 1}",
+          "mode": "raw"
+        },
+        "url": {
+          "raw": "{{chaosDeliveryUrl}}/actuator/chaosmonkey/assaults",
+          "path": [
+            "actuator",
+            "chaosmonkey",
+            "assaults"
+          ],
+          "host": [
+            "{{baseUrl}}"
+          ]
+        },
+        "description": "Chaos assaults management (ADMIN JWT only): exceptionsActive=false.",
+        "auth": {
+          "bearer": [
+            {
+              "type": "string",
+              "value": "{{adminToken}}",
+              "key": "token"
+            }
+          ],
+          "type": "bearer"
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "A1 - chaos endpoint without token -> 401",
+      "event": [
+        {
+          "script": {
+            "exec": [
+              "pm.test(\"401 without token\", function () { pm.response.to.have.status(401); });",
+              "pm.test(\"ErrorDto.status=401\", function () { pm.expect(pm.response.json().status).to.eql(401); });"
+            ],
+            "type": "text/javascript"
+          },
+          "listen": "test"
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{chaosBillingUrl}}/actuator/chaosmonkey",
+          "path": [
+            "actuator",
+            "chaosmonkey"
+          ],
+          "host": [
+            "{{baseUrl}}"
+          ]
+        },
+        "description": "Security check: no JWT -> 401."
+      },
+      "response": []
+    },
+    {
+      "name": "A2 - chaos endpoint with USER token -> 403",
+      "event": [
+        {
+          "script": {
+            "exec": [
+              "pm.test(\"403 for USER role\", function () { pm.response.to.have.status(403); });",
+              "pm.test(\"ErrorDto.status=403\", function () { pm.expect(pm.response.json().status).to.eql(403); });"
+            ],
+            "type": "text/javascript"
+          },
+          "listen": "test"
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{userToken}}"
+          }
+        ],
+        "url": {
+          "raw": "{{chaosBillingUrl}}/actuator/chaosmonkey",
+          "path": [
+            "actuator",
+            "chaosmonkey"
+          ],
+          "host": [
+            "{{baseUrl}}"
+          ]
+        },
+        "description": "Security check: USER role -> 403."
+      },
+      "response": []
+    },
+    {
+      "name": "A3 - BILLING: enable exception assaults",
+      "event": [
+        {
+          "script": {
+            "exec": [
+              "pm.test(\"Status code is 200\", function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "pm.test(\"Assault config updated\", function () {",
+              "    pm.expect(pm.response.text()).to.contain(\"Assault config has changed\");",
+              "});"
+            ],
+            "type": "text/javascript"
+          },
+          "listen": "test"
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          },
+          "raw": "{\"exceptionsActive\": true, \"latencyActive\": false, \"level\": 1}",
+          "mode": "raw"
+        },
+        "url": {
+          "raw": "{{chaosBillingUrl}}/actuator/chaosmonkey/assaults",
+          "path": [
+            "actuator",
+            "chaosmonkey",
+            "assaults"
+          ],
+          "host": [
+            "{{baseUrl}}"
+          ]
+        },
+        "description": "Chaos assaults management (ADMIN JWT only): exceptionsActive=true.",
+        "auth": {
+          "bearer": [
+            {
+              "type": "string",
+              "value": "{{adminToken}}",
+              "key": "token"
+            }
+          ],
+          "type": "bearer"
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "A4 - Order #1 -> slow failure 502 (retries over chaos, opens the CB)",
+      "event": [
+        {
+          "script": {
+            "exec": [
+              "pm.test(\"Slow failure: 502 after retries\", function () {",
+              "    pm.response.to.have.status(502);",
+              "});",
+              "pm.test(\"Slow: retries + chaos latency took >= 300 ms\", function () {",
+              "    pm.expect(pm.response.responseTime).to.be.at.least(300);",
+              "});"
+            ],
+            "type": "text/javascript"
+          },
+          "listen": "test"
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          },
+          "raw": "{\"userId\": {{userId}}, \"price\": 10.0000, \"description\": \"CB-A scenario order\", \"productId\": {{productId}}, \"quantity\": 1, \"deliveryDate\": \"{{deliveryDate}}\", \"slotStart\": \"{{slotStart}}\", \"slotEnd\": \"{{slotEnd}}\"}",
+          "mode": "raw"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/order",
+          "path": [
+            "api",
+            "v1",
+            "order"
+          ],
+          "host": [
+            "{{baseUrl}}"
+          ]
+        },
+        "description": "Billing step fails: 3 withdraw retries + 3 compensation-refund retries are recorded by the CB (window min 5 calls, 50% threshold) -> CB opens during compensation -> 502.",
+        "auth": {
+          "bearer": [
+            {
+              "type": "string",
+              "value": "{{userToken}}",
+              "key": "token"
+            }
+          ],
+          "type": "bearer"
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "A5 - Order #2 -> fast 503 CIRCUIT_BREAKER_OPEN",
+      "event": [
+        {
+          "script": {
+            "exec": [
+              "pm.test(\"Fast failure: 503 CIRCUIT_BREAKER_OPEN\", function () {",
+              "    pm.response.to.have.status(503);",
+              "});",
+              "pm.test(\"ErrorDto.code is CIRCUIT_BREAKER_OPEN\", function () {",
+              "    pm.expect(pm.response.json().code).to.eql(\"CIRCUIT_BREAKER_OPEN\");",
+              "});",
+              "pm.test(\"Fast reject under 1000 ms\", function () {",
+              "    pm.expect(pm.response.responseTime).to.be.below(1000);",
+              "});",
+              "pm.test(\"Retry-After: 10\", function () {",
+              "    pm.expect(pm.response.headers.get(\"Retry-After\")).to.eql(\"10\");",
+              "});"
+            ],
+            "type": "text/javascript"
+          },
+          "listen": "test"
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          },
+          "raw": "{\"userId\": {{userId}}, \"price\": 10.0000, \"description\": \"CB-A scenario order\", \"productId\": {{productId}}, \"quantity\": 1, \"deliveryDate\": \"{{deliveryDate}}\", \"slotStart\": \"{{slotStart}}\", \"slotEnd\": \"{{slotEnd}}\"}",
+          "mode": "raw"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/order",
+          "path": [
+            "api",
+            "v1",
+            "order"
+          ],
+          "host": [
+            "{{baseUrl}}"
+          ]
+        },
+        "description": "CB already open after A4 (withdraw + compensation retries filled the window): fast reject without calling billing.",
+        "auth": {
+          "bearer": [
+            {
+              "type": "string",
+              "value": "{{userToken}}",
+              "key": "token"
+            }
+          ],
+          "type": "bearer"
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "A6 - User orders: >= 2 FAILED of block A",
+      "event": [
+        {
+          "script": {
+            "exec": [
+              "pm.test(\"Status code is 200\", function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "var orders = pm.response.json();",
+              "var failed = orders.filter(function (o) {",
+              "    return o.orderStatus === \"FAILED\" && (o.description || \"\").indexOf(\"CB-A\") === 0;",
+              "});",
+              "pm.test(\"At least 2 FAILED orders of the block\", function () {",
+              "    pm.expect(failed.length).to.be.at.least(2);",
+              "});",
+              "if (failed.length > 0) {",
+              "    pm.collectionVariables.set(\"orderId\", failed[failed.length - 1].id);",
+              "    console.log(\"FAILED order picked: \" + failed[failed.length - 1].id);",
+              "}"
+            ],
+            "type": "text/javascript"
+          },
+          "listen": "test"
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/order/user/{{userId}}",
+          "path": [
+            "api",
+            "v1",
+            "order",
+            "user",
+            "{{userId}}"
+          ],
+          "host": [
+            "{{baseUrl}}"
+          ]
+        },
+        "description": "Find FAILED orders of block CB-A and pick the last orderId.",
+        "auth": {
+          "bearer": [
+            {
+              "type": "string",
+              "value": "{{userToken}}",
+              "key": "token"
+            }
+          ],
+          "type": "bearer"
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "A7 - Order #3 -> fast 503 CIRCUIT_BREAKER_OPEN",
+      "event": [
+        {
+          "script": {
+            "exec": [
+              "pm.test(\"Fast failure: 503 CIRCUIT_BREAKER_OPEN\", function () {",
+              "    pm.response.to.have.status(503);",
+              "});",
+              "pm.test(\"ErrorDto.code is CIRCUIT_BREAKER_OPEN\", function () {",
+              "    pm.expect(pm.response.json().code).to.eql(\"CIRCUIT_BREAKER_OPEN\");",
+              "});",
+              "pm.test(\"Fast reject under 1000 ms\", function () {",
+              "    pm.expect(pm.response.responseTime).to.be.below(1000);",
+              "});",
+              "pm.test(\"Retry-After: 10\", function () {",
+              "    pm.expect(pm.response.headers.get(\"Retry-After\")).to.eql(\"10\");",
+              "});"
+            ],
+            "type": "text/javascript"
+          },
+          "listen": "test"
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          },
+          "raw": "{\"userId\": {{userId}}, \"price\": 10.0000, \"description\": \"CB-A scenario order\", \"productId\": {{productId}}, \"quantity\": 1, \"deliveryDate\": \"{{deliveryDate}}\", \"slotStart\": \"{{slotStart}}\", \"slotEnd\": \"{{slotEnd}}\"}",
+          "mode": "raw"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/order",
+          "path": [
+            "api",
+            "v1",
+            "order"
+          ],
+          "host": [
+            "{{baseUrl}}"
+          ]
+        },
+        "description": "CB is open: fast reject without calling billing.",
+        "auth": {
+          "bearer": [
+            {
+              "type": "string",
+              "value": "{{userToken}}",
+              "key": "token"
+            }
+          ],
+          "type": "bearer"
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "A8 - Order #4 -> fast 503 CIRCUIT_BREAKER_OPEN",
+      "event": [
+        {
+          "script": {
+            "exec": [
+              "pm.test(\"Fast failure: 503 CIRCUIT_BREAKER_OPEN\", function () {",
+              "    pm.response.to.have.status(503);",
+              "});",
+              "pm.test(\"ErrorDto.code is CIRCUIT_BREAKER_OPEN\", function () {",
+              "    pm.expect(pm.response.json().code).to.eql(\"CIRCUIT_BREAKER_OPEN\");",
+              "});",
+              "pm.test(\"Fast reject under 1000 ms\", function () {",
+              "    pm.expect(pm.response.responseTime).to.be.below(1000);",
+              "});",
+              "pm.test(\"Retry-After: 10\", function () {",
+              "    pm.expect(pm.response.headers.get(\"Retry-After\")).to.eql(\"10\");",
+              "});"
+            ],
+            "type": "text/javascript"
+          },
+          "listen": "test"
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          },
+          "raw": "{\"userId\": {{userId}}, \"price\": 10.0000, \"description\": \"CB-A scenario order\", \"productId\": {{productId}}, \"quantity\": 1, \"deliveryDate\": \"{{deliveryDate}}\", \"slotStart\": \"{{slotStart}}\", \"slotEnd\": \"{{slotEnd}}\"}",
+          "mode": "raw"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/order",
+          "path": [
+            "api",
+            "v1",
+            "order"
+          ],
+          "host": [
+            "{{baseUrl}}"
+          ]
+        },
+        "description": "Fast reject again + Retry-After header.",
+        "auth": {
+          "bearer": [
+            {
+              "type": "string",
+              "value": "{{userToken}}",
+              "key": "token"
+            }
+          ],
+          "type": "bearer"
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "A9 - BILLING: disable exception assaults",
+      "event": [
+        {
+          "script": {
+            "exec": [
+              "pm.test(\"Status code is 200\", function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "pm.test(\"Assault config updated\", function () {",
+              "    pm.expect(pm.response.text()).to.contain(\"Assault config has changed\");",
+              "});"
+            ],
+            "type": "text/javascript"
+          },
+          "listen": "test"
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          },
+          "raw": "{\"exceptionsActive\": false, \"latencyActive\": false, \"level\": 1}",
+          "mode": "raw"
+        },
+        "url": {
+          "raw": "{{chaosBillingUrl}}/actuator/chaosmonkey/assaults",
+          "path": [
+            "actuator",
+            "chaosmonkey",
+            "assaults"
+          ],
+          "host": [
+            "{{baseUrl}}"
+          ]
+        },
+        "description": "Chaos assaults management (ADMIN JWT only): exceptionsActive=false.",
+        "auth": {
+          "bearer": [
+            {
+              "type": "string",
+              "value": "{{adminToken}}",
+              "key": "token"
+            }
+          ],
+          "type": "bearer"
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "A10 - Wait CB recovery, control order -> 201 PLACED",
+      "event": [
+        {
+          "script": {
+            "exec": [
+              "// CB: waitDurationInOpenState=10s, automaticTransitionFromOpenToHalfOpenEnabled=true.",
+              "// OPEN -> HALF_OPEN transition, then the control call closes the circuit.",
+              "// Newman sandbox forbids root await in pre-request: synchronous blocking wait.",
+              "var waitUntil = Date.now() + 11000;",
+              "while (Date.now() < waitUntil) { }"
+            ],
+            "type": "text/javascript"
+          },
+          "listen": "prerequest"
+        },
+        {
+          "script": {
+            "exec": [
+              "pm.test(\"Status code is 201\", function () {",
+              "    pm.response.to.have.status(201);",
+              "});",
+              "pm.test(\"Order is PLACED (CB half-open -> closed)\", function () {",
+              "    pm.expect(pm.response.json().orderStatus).to.eql(\"PLACED\");",
+              "});"
+            ],
+            "type": "text/javascript"
+          },
+          "listen": "test"
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          },
+          "raw": "{\"userId\": {{userId}}, \"price\": 10.0000, \"description\": \"CB-A scenario order\", \"productId\": {{productId}}, \"quantity\": 1, \"deliveryDate\": \"{{deliveryDate}}\", \"slotStart\": \"{{slotStart}}\", \"slotEnd\": \"{{slotEnd}}\"}",
+          "mode": "raw"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/order",
+          "path": [
+            "api",
+            "v1",
+            "order"
+          ],
+          "host": [
+            "{{baseUrl}}"
+          ]
+        },
+        "description": "11s pause > waitDurationInOpenState; control order closes the circuit.",
+        "auth": {
+          "bearer": [
+            {
+              "type": "string",
+              "value": "{{userToken}}",
+              "key": "token"
+            }
+          ],
+          "type": "bearer"
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "A11 - Billing balance after block A",
+      "event": [
+        {
+          "script": {
+            "exec": [
+              "pm.test(\"Status code is 200\", function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "var balance = Number(pm.response.json().balance);",
+              "pm.test(\"Balance is 9990 (10000 - 10 control order)\", function () {",
+              "    pm.expect(balance).to.eql(9990);",
+              "});",
+              "pm.collectionVariables.set(\"balanceBefore\", String(balance));"
+            ],
+            "type": "text/javascript"
+          },
+          "listen": "test"
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/account/user/{{userId}}",
+          "path": [
+            "api",
+            "v1",
+            "account",
+            "user",
+            "{{userId}}"
+          ],
+          "host": [
+            "{{baseUrl}}"
+          ]
+        },
+        "description": "Only the control order withdrew 10.",
+        "auth": {
+          "bearer": [
+            {
+              "type": "string",
+              "value": "{{userToken}}",
+              "key": "token"
+            }
+          ],
+          "type": "bearer"
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "B1 - WAREHOUSE: enable exception assaults",
+      "event": [
+        {
+          "script": {
+            "exec": [
+              "pm.test(\"Status code is 200\", function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "pm.test(\"Assault config updated\", function () {",
+              "    pm.expect(pm.response.text()).to.contain(\"Assault config has changed\");",
+              "});"
+            ],
+            "type": "text/javascript"
+          },
+          "listen": "test"
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          },
+          "raw": "{\"exceptionsActive\": true, \"latencyActive\": false, \"level\": 1}",
+          "mode": "raw"
+        },
+        "url": {
+          "raw": "{{chaosWarehouseUrl}}/actuator/chaosmonkey/assaults",
+          "path": [
+            "actuator",
+            "chaosmonkey",
+            "assaults"
+          ],
+          "host": [
+            "{{baseUrl}}"
+          ]
+        },
+        "description": "Chaos assaults management (ADMIN JWT only): exceptionsActive=true.",
+        "auth": {
+          "bearer": [
+            {
+              "type": "string",
+              "value": "{{adminToken}}",
+              "key": "token"
+            }
+          ],
+          "type": "bearer"
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "B2 - Order #1 -> warehouse step failure 409",
+      "event": [
+        {
+          "script": {
+            "exec": [
+              "pm.test(\"Slow failure: 409 after retries\", function () {",
+              "    pm.response.to.have.status(409);",
+              "});",
+              "pm.test(\"Slow: retries + chaos latency took >= 300 ms\", function () {",
+              "    pm.expect(pm.response.responseTime).to.be.at.least(300);",
+              "});"
+            ],
+            "type": "text/javascript"
+          },
+          "listen": "test"
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          },
+          "raw": "{\"userId\": {{userId}}, \"price\": 10.0000, \"description\": \"CB-B scenario order\", \"productId\": {{productId}}, \"quantity\": 1, \"deliveryDate\": \"{{deliveryDate}}\", \"slotStart\": \"{{slotStart}}\", \"slotEnd\": \"{{slotEnd}}\"}",
+          "mode": "raw"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/order",
+          "path": [
+            "api",
+            "v1",
+            "order"
+          ],
+          "host": [
+            "{{baseUrl}}"
+          ]
+        },
+        "description": "Billing ok, warehouse fails after retries -> refund compensation -> 409.",
+        "auth": {
+          "bearer": [
+            {
+              "type": "string",
+              "value": "{{userToken}}",
+              "key": "token"
+            }
+          ],
+          "type": "bearer"
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "B3 - Order #2 -> fast 503 CIRCUIT_BREAKER_OPEN",
+      "event": [
+        {
+          "script": {
+            "exec": [
+              "pm.test(\"Fast failure: 503 CIRCUIT_BREAKER_OPEN\", function () {",
+              "    pm.response.to.have.status(503);",
+              "});",
+              "pm.test(\"ErrorDto.code is CIRCUIT_BREAKER_OPEN\", function () {",
+              "    pm.expect(pm.response.json().code).to.eql(\"CIRCUIT_BREAKER_OPEN\");",
+              "});",
+              "pm.test(\"Fast reject under 1000 ms\", function () {",
+              "    pm.expect(pm.response.responseTime).to.be.below(1000);",
+              "});",
+              "pm.test(\"Retry-After: 10\", function () {",
+              "    pm.expect(pm.response.headers.get(\"Retry-After\")).to.eql(\"10\");",
+              "});"
+            ],
+            "type": "text/javascript"
+          },
+          "listen": "test"
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          },
+          "raw": "{\"userId\": {{userId}}, \"price\": 10.0000, \"description\": \"CB-B scenario order\", \"productId\": {{productId}}, \"quantity\": 1, \"deliveryDate\": \"{{deliveryDate}}\", \"slotStart\": \"{{slotStart}}\", \"slotEnd\": \"{{slotEnd}}\"}",
+          "mode": "raw"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/order",
+          "path": [
+            "api",
+            "v1",
+            "order"
+          ],
+          "host": [
+            "{{baseUrl}}"
+          ]
+        },
+        "description": "CB already open after B2 (3 reserve retries + 3 compensation-cancel retries filled the window): fast reject without calling warehouse.",
+        "auth": {
+          "bearer": [
+            {
+              "type": "string",
+              "value": "{{userToken}}",
+              "key": "token"
+            }
+          ],
+          "type": "bearer"
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "B4 - Order #3 -> fast 503 CIRCUIT_BREAKER_OPEN",
+      "event": [
+        {
+          "script": {
+            "exec": [
+              "pm.test(\"Fast failure: 503 CIRCUIT_BREAKER_OPEN\", function () {",
+              "    pm.response.to.have.status(503);",
+              "});",
+              "pm.test(\"ErrorDto.code is CIRCUIT_BREAKER_OPEN\", function () {",
+              "    pm.expect(pm.response.json().code).to.eql(\"CIRCUIT_BREAKER_OPEN\");",
+              "});",
+              "pm.test(\"Fast reject under 1000 ms\", function () {",
+              "    pm.expect(pm.response.responseTime).to.be.below(1000);",
+              "});",
+              "pm.test(\"Retry-After: 10\", function () {",
+              "    pm.expect(pm.response.headers.get(\"Retry-After\")).to.eql(\"10\");",
+              "});"
+            ],
+            "type": "text/javascript"
+          },
+          "listen": "test"
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          },
+          "raw": "{\"userId\": {{userId}}, \"price\": 10.0000, \"description\": \"CB-B scenario order\", \"productId\": {{productId}}, \"quantity\": 1, \"deliveryDate\": \"{{deliveryDate}}\", \"slotStart\": \"{{slotStart}}\", \"slotEnd\": \"{{slotEnd}}\"}",
+          "mode": "raw"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/order",
+          "path": [
+            "api",
+            "v1",
+            "order"
+          ],
+          "host": [
+            "{{baseUrl}}"
+          ]
+        },
+        "description": "Fast reject on warehouse.",
+        "auth": {
+          "bearer": [
+            {
+              "type": "string",
+              "value": "{{userToken}}",
+              "key": "token"
+            }
+          ],
+          "type": "bearer"
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "B5 - Order #4 -> fast 503 CIRCUIT_BREAKER_OPEN",
+      "event": [
+        {
+          "script": {
+            "exec": [
+              "pm.test(\"Fast failure: 503 CIRCUIT_BREAKER_OPEN\", function () {",
+              "    pm.response.to.have.status(503);",
+              "});",
+              "pm.test(\"ErrorDto.code is CIRCUIT_BREAKER_OPEN\", function () {",
+              "    pm.expect(pm.response.json().code).to.eql(\"CIRCUIT_BREAKER_OPEN\");",
+              "});",
+              "pm.test(\"Fast reject under 1000 ms\", function () {",
+              "    pm.expect(pm.response.responseTime).to.be.below(1000);",
+              "});",
+              "pm.test(\"Retry-After: 10\", function () {",
+              "    pm.expect(pm.response.headers.get(\"Retry-After\")).to.eql(\"10\");",
+              "});"
+            ],
+            "type": "text/javascript"
+          },
+          "listen": "test"
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          },
+          "raw": "{\"userId\": {{userId}}, \"price\": 10.0000, \"description\": \"CB-B scenario order\", \"productId\": {{productId}}, \"quantity\": 1, \"deliveryDate\": \"{{deliveryDate}}\", \"slotStart\": \"{{slotStart}}\", \"slotEnd\": \"{{slotEnd}}\"}",
+          "mode": "raw"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/order",
+          "path": [
+            "api",
+            "v1",
+            "order"
+          ],
+          "host": [
+            "{{baseUrl}}"
+          ]
+        },
+        "description": "Fast reject again.",
+        "auth": {
+          "bearer": [
+            {
+              "type": "string",
+              "value": "{{userToken}}",
+              "key": "token"
+            }
+          ],
+          "type": "bearer"
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "B6 - WAREHOUSE: disable exception assaults",
+      "event": [
+        {
+          "script": {
+            "exec": [
+              "pm.test(\"Status code is 200\", function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "pm.test(\"Assault config updated\", function () {",
+              "    pm.expect(pm.response.text()).to.contain(\"Assault config has changed\");",
+              "});"
+            ],
+            "type": "text/javascript"
+          },
+          "listen": "test"
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          },
+          "raw": "{\"exceptionsActive\": false, \"latencyActive\": false, \"level\": 1}",
+          "mode": "raw"
+        },
+        "url": {
+          "raw": "{{chaosWarehouseUrl}}/actuator/chaosmonkey/assaults",
+          "path": [
+            "actuator",
+            "chaosmonkey",
+            "assaults"
+          ],
+          "host": [
+            "{{baseUrl}}"
+          ]
+        },
+        "description": "Chaos assaults management (ADMIN JWT only): exceptionsActive=false.",
+        "auth": {
+          "bearer": [
+            {
+              "type": "string",
+              "value": "{{adminToken}}",
+              "key": "token"
+            }
+          ],
+          "type": "bearer"
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "B7 - Wait CB recovery, control order -> 201 PLACED",
+      "event": [
+        {
+          "script": {
+            "exec": [
+              "// CB: waitDurationInOpenState=10s, automaticTransitionFromOpenToHalfOpenEnabled=true.",
+              "// OPEN -> HALF_OPEN transition, then the control call closes the circuit.",
+              "// Newman sandbox forbids root await in pre-request: synchronous blocking wait.",
+              "var waitUntil = Date.now() + 11000;",
+              "while (Date.now() < waitUntil) { }"
+            ],
+            "type": "text/javascript"
+          },
+          "listen": "prerequest"
+        },
+        {
+          "script": {
+            "exec": [
+              "pm.test(\"Status code is 201\", function () {",
+              "    pm.response.to.have.status(201);",
+              "});",
+              "pm.test(\"Order is PLACED (CB half-open -> closed)\", function () {",
+              "    pm.expect(pm.response.json().orderStatus).to.eql(\"PLACED\");",
+              "});"
+            ],
+            "type": "text/javascript"
+          },
+          "listen": "test"
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          },
+          "raw": "{\"userId\": {{userId}}, \"price\": 10.0000, \"description\": \"CB-B scenario order\", \"productId\": {{productId}}, \"quantity\": 1, \"deliveryDate\": \"{{deliveryDate}}\", \"slotStart\": \"{{slotStart}}\", \"slotEnd\": \"{{slotEnd}}\"}",
+          "mode": "raw"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/order",
+          "path": [
+            "api",
+            "v1",
+            "order"
+          ],
+          "host": [
+            "{{baseUrl}}"
+          ]
+        },
+        "description": "11s pause, control order.",
+        "auth": {
+          "bearer": [
+            {
+              "type": "string",
+              "value": "{{userToken}}",
+              "key": "token"
+            }
+          ],
+          "type": "bearer"
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "B8 - Billing balance after block B (refunds returned)",
+      "event": [
+        {
+          "script": {
+            "exec": [
+              "pm.test(\"Status code is 200\", function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "var balance = Number(pm.response.json().balance);",
+              "var before = Number(pm.collectionVariables.get(\"balanceBefore\"));",
+              "pm.test(\"Refunds returned deposits: balance = before - 10\", function () {",
+              "    pm.expect(balance).to.eql(before - 10);",
+              "});",
+              "pm.collectionVariables.set(\"balanceBefore\", String(balance));"
+            ],
+            "type": "text/javascript"
+          },
+          "listen": "test"
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/account/user/{{userId}}",
+          "path": [
+            "api",
+            "v1",
+            "account",
+            "user",
+            "{{userId}}"
+          ],
+          "host": [
+            "{{baseUrl}}"
+          ]
+        },
+        "description": "Compensations returned withdrawals; control order took 10.",
+        "auth": {
+          "bearer": [
+            {
+              "type": "string",
+              "value": "{{userToken}}",
+              "key": "token"
+            }
+          ],
+          "type": "bearer"
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "B9 - User orders: >= 2 FAILED of block B",
+      "event": [
+        {
+          "script": {
+            "exec": [
+              "pm.test(\"Status code is 200\", function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "var orders = pm.response.json();",
+              "var failed = orders.filter(function (o) {",
+              "    return o.orderStatus === \"FAILED\" && (o.description || \"\").indexOf(\"CB-B\") === 0;",
+              "});",
+              "pm.test(\"At least 2 FAILED orders of the block\", function () {",
+              "    pm.expect(failed.length).to.be.at.least(2);",
+              "});",
+              "if (failed.length > 0) {",
+              "    pm.collectionVariables.set(\"orderId\", failed[failed.length - 1].id);",
+              "    console.log(\"FAILED order picked: \" + failed[failed.length - 1].id);",
+              "}"
+            ],
+            "type": "text/javascript"
+          },
+          "listen": "test"
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/order/user/{{userId}}",
+          "path": [
+            "api",
+            "v1",
+            "order",
+            "user",
+            "{{userId}}"
+          ],
+          "host": [
+            "{{baseUrl}}"
+          ]
+        },
+        "description": "Find FAILED orders of block CB-B and pick the last orderId.",
+        "auth": {
+          "bearer": [
+            {
+              "type": "string",
+              "value": "{{userToken}}",
+              "key": "token"
+            }
+          ],
+          "type": "bearer"
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "B10 - Warehouse reservation of FAILED order -> 404",
+      "event": [
+        {
+          "script": {
+            "exec": [
+              "pm.test(\"Status code is 404\", function () {",
+              "    pm.response.to.have.status(404);",
+              "});"
+            ],
+            "type": "text/javascript"
+          },
+          "listen": "test"
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "X-Internal-API-Key",
+            "value": "{{internalApiKey}}"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/internal/products/reservations/{{orderId}}",
+          "path": [
+            "internal",
+            "products",
+            "reservations",
+            "{{orderId}}"
+          ],
+          "host": [
+            "{{baseUrl}}"
+          ]
+        },
+        "description": "Warehouse reservation absent (reservation step itself failed)."
+      },
+      "response": []
+    },
+    {
+      "name": "C1 - DELIVERY: enable exception assaults",
+      "event": [
+        {
+          "script": {
+            "exec": [
+              "pm.test(\"Status code is 200\", function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "pm.test(\"Assault config updated\", function () {",
+              "    pm.expect(pm.response.text()).to.contain(\"Assault config has changed\");",
+              "});"
+            ],
+            "type": "text/javascript"
+          },
+          "listen": "test"
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          },
+          "raw": "{\"exceptionsActive\": true, \"latencyActive\": false, \"level\": 1}",
+          "mode": "raw"
+        },
+        "url": {
+          "raw": "{{chaosDeliveryUrl}}/actuator/chaosmonkey/assaults",
+          "path": [
+            "actuator",
+            "chaosmonkey",
+            "assaults"
+          ],
+          "host": [
+            "{{baseUrl}}"
+          ]
+        },
+        "description": "Chaos assaults management (ADMIN JWT only): exceptionsActive=true.",
+        "auth": {
+          "bearer": [
+            {
+              "type": "string",
+              "value": "{{adminToken}}",
+              "key": "token"
+            }
+          ],
+          "type": "bearer"
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "C2 - Order #1 -> delivery step failure 409 (opens the CB)",
+      "event": [
+        {
+          "script": {
+            "exec": [
+              "pm.test(\"Slow failure: 409 after retries\", function () {",
+              "    pm.response.to.have.status(409);",
+              "});",
+              "pm.test(\"Slow: retries + chaos latency took >= 300 ms\", function () {",
+              "    pm.expect(pm.response.responseTime).to.be.at.least(300);",
+              "});"
+            ],
+            "type": "text/javascript"
+          },
+          "listen": "test"
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          },
+          "raw": "{\"userId\": {{userId}}, \"price\": 10.0000, \"description\": \"CB-C scenario order\", \"productId\": {{productId}}, \"quantity\": 1, \"deliveryDate\": \"{{deliveryDate}}\", \"slotStart\": \"{{slotStart}}\", \"slotEnd\": \"{{slotEnd}}\"}",
+          "mode": "raw"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/order",
+          "path": [
+            "api",
+            "v1",
+            "order"
+          ],
+          "host": [
+            "{{baseUrl}}"
+          ]
+        },
+        "description": "Billing+warehouse ok, delivery fails after retries -> compensations -> 409; the window (2 control successes + 3 failures) crosses the 50% threshold on the last attempt -> CB opens.",
+        "auth": {
+          "bearer": [
+            {
+              "type": "string",
+              "value": "{{userToken}}",
+              "key": "token"
+            }
+          ],
+          "type": "bearer"
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "C3 - Order #2 -> fast 503 CIRCUIT_BREAKER_OPEN",
+      "event": [
+        {
+          "script": {
+            "exec": [
+              "pm.test(\"Fast failure: 503 CIRCUIT_BREAKER_OPEN\", function () {",
+              "    pm.response.to.have.status(503);",
+              "});",
+              "pm.test(\"ErrorDto.code is CIRCUIT_BREAKER_OPEN\", function () {",
+              "    pm.expect(pm.response.json().code).to.eql(\"CIRCUIT_BREAKER_OPEN\");",
+              "});",
+              "pm.test(\"Fast reject under 1000 ms\", function () {",
+              "    pm.expect(pm.response.responseTime).to.be.below(1000);",
+              "});",
+              "pm.test(\"Retry-After: 10\", function () {",
+              "    pm.expect(pm.response.headers.get(\"Retry-After\")).to.eql(\"10\");",
+              "});"
+            ],
+            "type": "text/javascript"
+          },
+          "listen": "test"
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          },
+          "raw": "{\"userId\": {{userId}}, \"price\": 10.0000, \"description\": \"CB-C scenario order\", \"productId\": {{productId}}, \"quantity\": 1, \"deliveryDate\": \"{{deliveryDate}}\", \"slotStart\": \"{{slotStart}}\", \"slotEnd\": \"{{slotEnd}}\"}",
+          "mode": "raw"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/order",
+          "path": [
+            "api",
+            "v1",
+            "order"
+          ],
+          "host": [
+            "{{baseUrl}}"
+          ]
+        },
+        "description": "CB already open after C2 retries: fast reject on delivery.",
+        "auth": {
+          "bearer": [
+            {
+              "type": "string",
+              "value": "{{userToken}}",
+              "key": "token"
+            }
+          ],
+          "type": "bearer"
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "C4 - Order #3 -> fast 503 CIRCUIT_BREAKER_OPEN",
+      "event": [
+        {
+          "script": {
+            "exec": [
+              "pm.test(\"Fast failure: 503 CIRCUIT_BREAKER_OPEN\", function () {",
+              "    pm.response.to.have.status(503);",
+              "});",
+              "pm.test(\"ErrorDto.code is CIRCUIT_BREAKER_OPEN\", function () {",
+              "    pm.expect(pm.response.json().code).to.eql(\"CIRCUIT_BREAKER_OPEN\");",
+              "});",
+              "pm.test(\"Fast reject under 1000 ms\", function () {",
+              "    pm.expect(pm.response.responseTime).to.be.below(1000);",
+              "});",
+              "pm.test(\"Retry-After: 10\", function () {",
+              "    pm.expect(pm.response.headers.get(\"Retry-After\")).to.eql(\"10\");",
+              "});"
+            ],
+            "type": "text/javascript"
+          },
+          "listen": "test"
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          },
+          "raw": "{\"userId\": {{userId}}, \"price\": 10.0000, \"description\": \"CB-C scenario order\", \"productId\": {{productId}}, \"quantity\": 1, \"deliveryDate\": \"{{deliveryDate}}\", \"slotStart\": \"{{slotStart}}\", \"slotEnd\": \"{{slotEnd}}\"}",
+          "mode": "raw"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/order",
+          "path": [
+            "api",
+            "v1",
+            "order"
+          ],
+          "host": [
+            "{{baseUrl}}"
+          ]
+        },
+        "description": "Fast reject on delivery.",
+        "auth": {
+          "bearer": [
+            {
+              "type": "string",
+              "value": "{{userToken}}",
+              "key": "token"
+            }
+          ],
+          "type": "bearer"
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "C5 - Order #4 -> fast 503 CIRCUIT_BREAKER_OPEN",
+      "event": [
+        {
+          "script": {
+            "exec": [
+              "pm.test(\"Fast failure: 503 CIRCUIT_BREAKER_OPEN\", function () {",
+              "    pm.response.to.have.status(503);",
+              "});",
+              "pm.test(\"ErrorDto.code is CIRCUIT_BREAKER_OPEN\", function () {",
+              "    pm.expect(pm.response.json().code).to.eql(\"CIRCUIT_BREAKER_OPEN\");",
+              "});",
+              "pm.test(\"Fast reject under 1000 ms\", function () {",
+              "    pm.expect(pm.response.responseTime).to.be.below(1000);",
+              "});",
+              "pm.test(\"Retry-After: 10\", function () {",
+              "    pm.expect(pm.response.headers.get(\"Retry-After\")).to.eql(\"10\");",
+              "});"
+            ],
+            "type": "text/javascript"
+          },
+          "listen": "test"
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          },
+          "raw": "{\"userId\": {{userId}}, \"price\": 10.0000, \"description\": \"CB-C scenario order\", \"productId\": {{productId}}, \"quantity\": 1, \"deliveryDate\": \"{{deliveryDate}}\", \"slotStart\": \"{{slotStart}}\", \"slotEnd\": \"{{slotEnd}}\"}",
+          "mode": "raw"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/order",
+          "path": [
+            "api",
+            "v1",
+            "order"
+          ],
+          "host": [
+            "{{baseUrl}}"
+          ]
+        },
+        "description": "Fast reject again.",
+        "auth": {
+          "bearer": [
+            {
+              "type": "string",
+              "value": "{{userToken}}",
+              "key": "token"
+            }
+          ],
+          "type": "bearer"
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "C6 - DELIVERY: disable exception assaults",
+      "event": [
+        {
+          "script": {
+            "exec": [
+              "pm.test(\"Status code is 200\", function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "pm.test(\"Assault config updated\", function () {",
+              "    pm.expect(pm.response.text()).to.contain(\"Assault config has changed\");",
+              "});"
+            ],
+            "type": "text/javascript"
+          },
+          "listen": "test"
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          },
+          "raw": "{\"exceptionsActive\": false, \"latencyActive\": false, \"level\": 1}",
+          "mode": "raw"
+        },
+        "url": {
+          "raw": "{{chaosDeliveryUrl}}/actuator/chaosmonkey/assaults",
+          "path": [
+            "actuator",
+            "chaosmonkey",
+            "assaults"
+          ],
+          "host": [
+            "{{baseUrl}}"
+          ]
+        },
+        "description": "Chaos assaults management (ADMIN JWT only): exceptionsActive=false.",
+        "auth": {
+          "bearer": [
+            {
+              "type": "string",
+              "value": "{{adminToken}}",
+              "key": "token"
+            }
+          ],
+          "type": "bearer"
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "C7 - Wait CB recovery, control order -> 201 PLACED",
+      "event": [
+        {
+          "script": {
+            "exec": [
+              "// CB: waitDurationInOpenState=10s, automaticTransitionFromOpenToHalfOpenEnabled=true.",
+              "// OPEN -> HALF_OPEN transition, then the control call closes the circuit.",
+              "// Newman sandbox forbids root await in pre-request: synchronous blocking wait.",
+              "var waitUntil = Date.now() + 11000;",
+              "while (Date.now() < waitUntil) { }"
+            ],
+            "type": "text/javascript"
+          },
+          "listen": "prerequest"
+        },
+        {
+          "script": {
+            "exec": [
+              "pm.test(\"Status code is 201\", function () {",
+              "    pm.response.to.have.status(201);",
+              "});",
+              "pm.test(\"Order is PLACED (CB half-open -> closed)\", function () {",
+              "    pm.expect(pm.response.json().orderStatus).to.eql(\"PLACED\");",
+              "});"
+            ],
+            "type": "text/javascript"
+          },
+          "listen": "test"
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          },
+          "raw": "{\"userId\": {{userId}}, \"price\": 10.0000, \"description\": \"CB-C scenario order\", \"productId\": {{productId}}, \"quantity\": 1, \"deliveryDate\": \"{{deliveryDate}}\", \"slotStart\": \"{{slotStart}}\", \"slotEnd\": \"{{slotEnd}}\"}",
+          "mode": "raw"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/order",
+          "path": [
+            "api",
+            "v1",
+            "order"
+          ],
+          "host": [
+            "{{baseUrl}}"
+          ]
+        },
+        "description": "11s pause, control order.",
+        "auth": {
+          "bearer": [
+            {
+              "type": "string",
+              "value": "{{userToken}}",
+              "key": "token"
+            }
+          ],
+          "type": "bearer"
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "C8 - Final billing balance",
+      "event": [
+        {
+          "script": {
+            "exec": [
+              "pm.test(\"Status code is 200\", function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "pm.test(\"Final balance is 9970 (10000 - 3 control orders)\", function () {",
+              "    pm.expect(Number(pm.response.json().balance)).to.eql(9970);",
+              "});"
+            ],
+            "type": "text/javascript"
+          },
+          "listen": "test"
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/account/user/{{userId}}",
+          "path": [
+            "api",
+            "v1",
+            "account",
+            "user",
+            "{{userId}}"
+          ],
+          "host": [
+            "{{baseUrl}}"
+          ]
+        },
+        "description": "Total: three control orders withdrew 10 each.",
+        "auth": {
+          "bearer": [
+            {
+              "type": "string",
+              "value": "{{userToken}}",
+              "key": "token"
+            }
+          ],
+          "type": "bearer"
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "C9 - User orders: >= 2 FAILED of block C",
+      "event": [
+        {
+          "script": {
+            "exec": [
+              "pm.test(\"Status code is 200\", function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "var orders = pm.response.json();",
+              "var failed = orders.filter(function (o) {",
+              "    return o.orderStatus === \"FAILED\" && (o.description || \"\").indexOf(\"CB-C\") === 0;",
+              "});",
+              "pm.test(\"At least 2 FAILED orders of the block\", function () {",
+              "    pm.expect(failed.length).to.be.at.least(2);",
+              "});",
+              "if (failed.length > 0) {",
+              "    pm.collectionVariables.set(\"orderId\", failed[failed.length - 1].id);",
+              "    console.log(\"FAILED order picked: \" + failed[failed.length - 1].id);",
+              "}"
+            ],
+            "type": "text/javascript"
+          },
+          "listen": "test"
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/order/user/{{userId}}",
+          "path": [
+            "api",
+            "v1",
+            "order",
+            "user",
+            "{{userId}}"
+          ],
+          "host": [
+            "{{baseUrl}}"
+          ]
+        },
+        "description": "Find FAILED orders of block CB-C and pick the last orderId.",
+        "auth": {
+          "bearer": [
+            {
+              "type": "string",
+              "value": "{{userToken}}",
+              "key": "token"
+            }
+          ],
+          "type": "bearer"
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "C10 - Warehouse reservation of FAILED order -> RELEASED",
+      "event": [
+        {
+          "script": {
+            "exec": [
+              "pm.test(\"Status code is 200\", function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "pm.test(\"Warehouse reservation is RELEASED by compensation\", function () {",
+              "    var reservations = pm.response.json().reservations || [];",
+              "    pm.expect(reservations).to.be.an(\"array\").that.is.not.empty;",
+              "    reservations.forEach(function (r) {",
+              "        pm.expect(r.reservationStatus).to.eql(\"RELEASED\");",
+              "    });",
+              "});"
+            ],
+            "type": "text/javascript"
+          },
+          "listen": "test"
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "X-Internal-API-Key",
+            "value": "{{internalApiKey}}"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/internal/products/reservations/{{orderId}}",
+          "path": [
+            "internal",
+            "products",
+            "reservations",
+            "{{orderId}}"
+          ],
+          "host": [
+            "{{baseUrl}}"
+          ]
+        },
+        "description": "In block C the warehouse step succeeded before delivery failed, so the reservation record exists and compensation marked it RELEASED."
+      },
+      "response": []
+    },
+    {
+      "name": "C11 - Delivery reservation of FAILED order -> 404",
+      "event": [
+        {
+          "script": {
+            "exec": [
+              "pm.test(\"Status code is 404\", function () {",
+              "    pm.response.to.have.status(404);",
+              "});"
+            ],
+            "type": "text/javascript"
+          },
+          "listen": "test"
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "X-Internal-API-Key",
+            "value": "{{internalApiKey}}"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/internal/delivery/reservations/{{orderId}}",
+          "path": [
+            "internal",
+            "delivery",
+            "reservations",
+            "{{orderId}}"
+          ],
+          "host": [
+            "{{baseUrl}}"
+          ]
+        },
+        "description": "Delivery reservation was never created."
+      },
+      "response": []
+    }
+  ]
+}

@@ -1,24 +1,38 @@
-param(
+﻿param(
   [Alias('Collection')]
   [string[]]$Collections = @(
-    '.\postman\k8s\otus-hw9-success-k8s.postman_collection.json',
-    '.\postman\k8s\otus-hw9-failed-billing-k8s.postman_collection.json',
-    '.\postman\k8s\otus-hw9-failed-warehouse-k8s.postman_collection.json',
-    '.\postman\k8s\otus-hw9-failed-delivery-k8s.postman_collection.json',
-    '.\postman\k8s\otus-hw9-cancel-conflict-k8s.postman_collection.json',
-    '.\postman\k8s\otus-hw9-idempotency-k8s.postman_collection.json'
+    '.\postman\k8s\otus-fp-success-k8s.postman_collection.json',
+    '.\postman\k8s\otus-fp-failed-billing-k8s.postman_collection.json',
+    '.\postman\k8s\otus-fp-failed-warehouse-k8s.postman_collection.json',
+    '.\postman\k8s\otus-fp-failed-delivery-k8s.postman_collection.json',
+    '.\postman\k8s\otus-fp-cancel-conflict-k8s.postman_collection.json',
+    '.\postman\k8s\otus-fp-idempotency-k8s.postman_collection.json',
+    '.\postman\k8s\otus-fp-user-sync-k8s.postman_collection.json'
+    # Circuit Breaker в k8s: прогон ОТЛОЖЕН — ингресс не публикует /actuator,
+    # хаос-эндпоинты требуют port-forward (chaosBillingUrl/chaosWarehouseUrl/chaosDeliveryUrl).
+    # '.\postman\k8s\otus-fp-circuit-breaker-k8s.postman_collection.json'
   ),
   [string]$Environment = '.\postman\k8s\k8s.postman_environment.json',
   [string]$InternalApiKey = '',
   [int]$Iterations = 1,
-  [int]$DelayMs = 100,
+  [int]$DelayMs = 600,
   [int]$TimeoutMs = 30000,
   [string]$ReportDir = '.\reports\k8s',
   [switch]$StressTest,
-  [switch]$HtmlReport
+  [switch]$HtmlReport,
+  [switch]$JsonReport
 )
 
 $ErrorActionPreference = 'Stop'
+
+# .NET-API ([System.IO.File]::ReadAllText/WriteAllText) резолвит относительные пути
+# от CWD процесса, а не от текущей локации PowerShell (Test-Path, newman). Если скрипт
+# запущен из другого каталога, относительный $ReportDir укажет в несуществующий путь.
+# Приводим $ReportDir к абсолютному сразу.
+if (-not [System.IO.Path]::IsPathRooted($ReportDir)) {
+    $ReportDir = Join-Path (Get-Location).ProviderPath $ReportDir
+}
+$ReportDir = [System.IO.Path]::GetFullPath($ReportDir)
 
 # Decode native command output (node/newman) as UTF-8, otherwise box-drawing
 # characters and symbols in newman's CLI report turn into mojibake on RU Windows
@@ -128,13 +142,13 @@ if ($HtmlReport) {
         }
     } catch {}
 
-    if (-not (Test-Path $ReportDir)) {
-        New-Item -ItemType Directory -Path $ReportDir -Force | Out-Null
-    }
-
     if (-not $HtmlExtraInstalled) {
         Write-Host "---> Tip: install newman-reporter-htmlextra for better reports: npm install -g newman-reporter-htmlextra" -ForegroundColor Cyan
     }
+}
+
+if (($HtmlReport -or $JsonReport) -and -not (Test-Path $ReportDir)) {
+    New-Item -ItemType Directory -Path $ReportDir -Force | Out-Null
 }
 
 Write-Host ""
@@ -156,16 +170,39 @@ for ($i = 0; $i -lt $Collections.Count; $i++) {
 
     $NewmanArgs = @("run", $Collection) + $CommonArgs
 
-    if ($HtmlReport) {
-        $CollName = [System.IO.Path]::GetFileNameWithoutExtension($Collection) -replace '\.postman_collection$', ''
-        $ReportFile = "$ReportDir\newman-report-$CollName-$Timestamp.html"
+    $CollName = [System.IO.Path]::GetFileNameWithoutExtension($Collection) -replace '\.postman_collection$', ''
+    $ReportFile = $null
+    $JsonFile = $null
+    $Reporters = @("cli")
 
+    if ($HtmlReport) {
+        $ReportFile = "$ReportDir\newman-report-$CollName-$Timestamp.html"
         if ($HtmlExtraInstalled) {
-            $NewmanArgs += @("--reporters", "cli,htmlextra", "--reporter-htmlextra-export", $ReportFile)
+            $Reporters += "htmlextra"
         } else {
-            $NewmanArgs += @("--reporters", "cli,html", "--reporter-html-export", $ReportFile)
+            $Reporters += "html"
         }
         Write-Host "---> HTML report will be saved to: $ReportFile"
+    }
+
+    if ($JsonReport) {
+        $JsonFile = "$ReportDir\newman-json-$CollName-$Timestamp.json"
+        $Reporters += "json"
+        Write-Host "---> JSON report will be saved to: $JsonFile"
+    }
+
+    if ($Reporters.Count -gt 1) {
+        $NewmanArgs += @("--reporters", ($Reporters -join ","))
+        if ($HtmlReport) {
+            if ($HtmlExtraInstalled) {
+                $NewmanArgs += @("--reporter-htmlextra-export", $ReportFile)
+            } else {
+                $NewmanArgs += @("--reporter-html-export", $ReportFile)
+            }
+        }
+        if ($JsonReport) {
+            $NewmanArgs += @("--reporter-json-export", $JsonFile)
+        }
     }
 
     $DisplayArgs = @($NewmanArgs)
@@ -178,15 +215,17 @@ for ($i = 0; $i -lt $Collections.Count; $i++) {
     node --no-deprecation $NewmanJsPath @NewmanArgs
     $ExitCode = $LASTEXITCODE
 
-    # В коллекциях стоит только плейсхолдер {{internalApiKey}}, но htmlextra записывает
-    # в отчёт заголовки запросов с подставленными значениями. Перед пушем отчётов в git
-    # вымарываем значение ключа, чтобы секрет не утекал через reports/.
-    if ($HtmlReport -and (Test-Path $ReportFile)) {
-        $ReportText = [System.IO.File]::ReadAllText($ReportFile)
-        if ($ReportText.Contains($InternalApiKey)) {
-            $ReportText = $ReportText.Replace($InternalApiKey, '***')
-            [System.IO.File]::WriteAllText($ReportFile, $ReportText)
-            Write-Host "---> INTERNAL_API_KEY value masked in report: $ReportFile"
+    # В коллекциях стоит только плейсхолдер {{internalApiKey}}, но репортеры (htmlextra/json)
+    # записывают в отчёт заголовки запросов с подставленными значениями. Перед пушем отчётов
+    # в git вымарываем значение ключа, чтобы секрет не утекал через reports/.
+    foreach ($MaskTarget in @($ReportFile, $JsonFile)) {
+        if ($MaskTarget -and (Test-Path $MaskTarget)) {
+            $ReportText = [System.IO.File]::ReadAllText($MaskTarget)
+            if ($ReportText.Contains($InternalApiKey)) {
+                $ReportText = $ReportText.Replace($InternalApiKey, '***')
+                [System.IO.File]::WriteAllText($MaskTarget, $ReportText)
+                Write-Host "---> INTERNAL_API_KEY value masked in report: $MaskTarget"
+            }
         }
     }
 

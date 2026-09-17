@@ -6,6 +6,7 @@ import jakarta.validation.constraints.Past;
 import jakarta.validation.constraints.Size;
 
 import java.time.LocalDateTime;
+import java.util.List;
 
 /**
  * DTO for {@link ru.otus.hw.models.UserProfile}
@@ -31,6 +32,14 @@ public record UserProfileDto(
         @Schema(description = "User's birthdate", example = "1990-01-15T00:00:00",
                 requiredMode = Schema.RequiredMode.NOT_REQUIRED)
         @Past(message = "Birthdate must be in the past")
-        LocalDateTime birthdate
+        LocalDateTime birthdate,
+
+        @Schema(description = "User's phone number (unique)", example = "+79991234567",
+                requiredMode = Schema.RequiredMode.NOT_REQUIRED)
+        String phone,
+
+        @Schema(description = "User's delivery addresses (with created ids)",
+                requiredMode = Schema.RequiredMode.NOT_REQUIRED)
+        List<UserAddressResponseDto> addresses
 ) {
 }

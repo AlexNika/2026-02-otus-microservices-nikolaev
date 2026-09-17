@@ -2,6 +2,7 @@ package ru.otus.hw.client;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.jspecify.annotations.NonNull;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.stereotype.Component;
@@ -25,7 +26,11 @@ public class BillingServiceClient {
     private final RestClient billingRestClient;
 
     /**
-     * Проверяет наличие биллинг-аккаунта пользователя: GET /api/v1/account/user/{userId}.
+     * Проверяет наличие биллинг-аккаунта пользователя: GET /internal/account/user/{userId}.
+     *
+     * <p>Публичный путь {@code /api/v1/account/user/{userId}} теперь требует JWT, поэтому
+     * сервис-клиент идёт во внутренний контур по {@code X-Internal-API-Key}
+     * (заголовок проставляет {@code billingRestClient}).
      *
      * @param userId the ID of the user to check
      * @return true если аккаунт есть (200), false если его нет (404)
@@ -36,7 +41,7 @@ public class BillingServiceClient {
 
         try {
             billingRestClient.get()
-                    .uri("/api/v1/account/user/{userId}", userId)
+                    .uri("/internal/account/user/{userId}", userId)
                     .retrieve()
                     .onStatus(HttpStatusCode::isError, (request, response) -> {
                         int status = response.getStatusCode().value();
@@ -61,7 +66,6 @@ public class BillingServiceClient {
 
         } catch (ResourceAccessException e) {
             String errorMessage = buildNetworkErrorMessage(userId, e);
-            log.error(errorMessage, e);
             throw new BillingServiceException(errorMessage, e);
 
         } catch (Exception e) {
@@ -70,12 +74,12 @@ public class BillingServiceClient {
                     userId,
                     e.getMessage()
             );
-            log.error(errorMessage, e);
+            log.debug(errorMessage, e);
             throw new BillingServiceException(errorMessage, e);
         }
     }
 
-    private String buildNetworkErrorMessage(Long userId, ResourceAccessException e) {
+    private @NonNull String buildNetworkErrorMessage(Long userId, @NonNull ResourceAccessException e) {
         Throwable cause = e.getCause();
 
         if (cause instanceof ConnectException) {

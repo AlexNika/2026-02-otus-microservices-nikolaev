@@ -36,6 +36,9 @@ public class UserProfile extends AuditableEntity<Long> {
     @Column(name = "birthdate")
     private LocalDateTime birthdate;
 
+    @Column(name = "phone", unique = true, length = 20)
+    private String phone;
+
     @OneToOne(mappedBy = "profile")
     private User user;
 }

@@ -8,8 +8,10 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.boot.test.web.client.TestRestTemplate;
 import org.springframework.boot.web.client.RestClientCustomizer;
+import org.springframework.boot.web.client.RestTemplateBuilder;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
+import org.springframework.core.env.Environment;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
@@ -33,6 +35,7 @@ import ru.otus.hw.repository.OrderSagaStateRepository;
 
 import java.net.http.HttpClient;
 import java.math.BigDecimal;
+import java.time.Duration;
 import java.time.LocalDate;
 import java.time.LocalTime;
 import java.util.List;
@@ -54,20 +57,45 @@ import static org.assertj.core.api.Assertions.assertThat;
 @Testcontainers
 @Import(OrderSagaIntegrationTest.HttpClientTestConfig.class)
 class OrderSagaIntegrationTest {
-
     /**
      * WireMock (Jetty) не отвечает на HTTP/2 upgrade JDK HttpClient - для тестовых RestClient
      * принудительно включаем HTTP/1.1. Прод-конфигурация не затронута.
+     * Кастомайзер полностью заменяет фабрику запросов (иначе тесты ломались бы о WireMock),
+     * поэтому вместе с ней он «стирает» и фабрику, собранную из свойств
+     * {@code spring.http.client.connect-timeout} / {@code read-timeout}. Чтобы прод-таймауты
+     * действовали и в тестах, кастомайзер перечитывает эти свойства из окружения и применяет их
+     * к своей фабрике (сохраняя HTTP/1.1).
      */
     @TestConfiguration
     static class HttpClientTestConfig {
-
         @Bean
-        RestClientCustomizer http11RequestFactory() {
-            return builder -> builder.requestFactory(new JdkClientHttpRequestFactory(
-                    HttpClient.newBuilder()
-                            .version(HttpClient.Version.HTTP_1_1)
-                            .build()));
+        RestClientCustomizer http11RequestFactory(Environment environment) {
+            Duration connectTimeout = environment.getProperty("spring.http.client.connect-timeout", Duration.class);
+            Duration readTimeout = environment.getProperty("spring.http.client.read-timeout", Duration.class);
+
+            HttpClient.Builder httpClientBuilder = HttpClient.newBuilder()
+                    .version(HttpClient.Version.HTTP_1_1);
+            if (connectTimeout != null) {
+                httpClientBuilder.connectTimeout(connectTimeout);
+            }
+            JdkClientHttpRequestFactory requestFactory = new JdkClientHttpRequestFactory(httpClientBuilder.build());
+            if (readTimeout != null) {
+                requestFactory.setReadTimeout(readTimeout);
+            }
+            return builder -> builder.requestFactory(requestFactory);
+        }
+
+        /**
+         * Свойства {@code spring.http.client.*} применяются не только к {@code RestClient.Builder},
+         * но и к автоконфигурируемому {@code RestTemplateBuilder}, из которого собирается
+         * {@link TestRestTemplate}. Тестовый клиент не должен наследовать короткий
+         * {@code read-timeout}, заданный для теста на таймаут саги: сам запрос
+         * {@code POST /api/v1/order} ждёт завершения саги (ретраи ~3с+), иначе падает с
+         * {@code HttpTimeoutException}. Обычный билдер возвращает поведение до свойств.
+         */
+        @Bean
+        RestTemplateBuilder testRestTemplateBuilder() {
+            return new RestTemplateBuilder();
         }
     }
 
@@ -84,6 +112,12 @@ class OrderSagaIntegrationTest {
     private static final LocalTime SLOT_START = LocalTime.of(10, 0);
 
     private static final LocalTime SLOT_END = LocalTime.of(12, 0);
+
+    /** Задержка ответа зависшего биллинга - больше read-таймаута теста (1с). */
+    private static final int HUNG_BILLING_DELAY_MS = 5_000;
+
+    /** Верхняя граница времени теста на таймаут: 3 попытки × 1с + бэкоффы 0.2с/0.4с + запас. */
+    private static final long MAX_EXPECTED_ELAPSED_MS = 15_000;
 
     @Container
     static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:16.11");
@@ -112,6 +146,16 @@ class OrderSagaIntegrationTest {
         registry.add("app.warehouse-service-url", warehouseMock::baseUrl);
         registry.add("app.delivery-service-url", deliveryMock::baseUrl);
         registry.add("app.internal-api-key", () -> "test-internal-api-key");
+        registry.add("app.security.jwt-secret-key",
+                () -> "integration-test-jwt-secret-key-long-enough-for-hmac-sha-2026");
+        registry.add("spring.http.client.read-timeout", () -> "1s");
+
+        for (String instance : List.of("billingService", "warehouseService", "deliveryService")) {
+            registry.add("resilience4j.circuitbreaker.instances." + instance + ".sliding-window-size",
+                    () -> "1000");
+            registry.add("resilience4j.circuitbreaker.instances." + instance + ".minimum-number-of-calls",
+                    () -> "1000");
+        }
     }
 
     @Autowired
@@ -122,6 +166,9 @@ class OrderSagaIntegrationTest {
 
     @Autowired
     private OrderSagaStateRepository orderSagaStateRepository;
+
+    @Autowired
+    private ru.otus.hw.security.JwtTokenProvider jwtTokenProvider;
 
     @MockitoBean
     private NotificationEventPublisher notificationEventPublisher;
@@ -308,15 +355,63 @@ class OrderSagaIntegrationTest {
         billingMock.verify(1, postRequestedFor(urlEqualTo("/internal/order/refund")));
     }
 
+    @Test
+    @DisplayName("зависший биллинг (ответ дольше read-таймаута) - 3 ретрая, заказ FAILED, сага COMPENSATED")
+    void shouldFailOrderWhenBillingWithdrawHangs() {
+        Long userId = nextUserId();
+        billingMock.stubFor(post(urlEqualTo("/internal/order/withdraw"))
+                .willReturn(aResponse()
+                        .withStatus(200)
+                        .withFixedDelay(HUNG_BILLING_DELAY_MS)));
+
+        long startedAtMs = System.currentTimeMillis();
+
+        ResponseEntity<String> response = createOrder(userId, String.class);
+
+        long elapsedMs = System.currentTimeMillis() - startedAtMs;
+
+        assertThat(response.getStatusCode().value()).isEqualTo(502);
+        assertThat(elapsedMs)
+                .as("запрос должен завершиться за конечное время (3 ретрая × 1с + бэкоффы)")
+                .isLessThan(MAX_EXPECTED_ELAPSED_MS);
+
+        Long orderId = singleOrderIdByUser(userId);
+        assertOrderStatus(orderId, Order.OrderStatus.FAILED);
+        assertSaga(orderId, OrderSagaState.SagaStatus.COMPENSATED, OrderSagaState.SagaStep.BILLING_WITHDRAW);
+
+        billingMock.verify(3, postRequestedFor(urlEqualTo("/internal/order/withdraw")));
+        billingMock.verify(0, postRequestedFor(urlEqualTo("/internal/order/refund")));
+        warehouseMock.verify(0, postRequestedFor(urlEqualTo("/internal/products/reservations")));
+        deliveryMock.verify(0, postRequestedFor(urlEqualTo("/internal/delivery/reservations")));
+    }
+
+    @Test
+    @DisplayName("без JWT: POST /api/v1/order - 401, заказ не создаётся")
+    void shouldRejectOrderCreationWithoutToken() {
+        Long userId = nextUserId();
+        OrderCreateDto dto = new OrderCreateDto(PRICE, "no token", PRODUCT_ID, QUANTITY,
+                DELIVERY_DATE, SLOT_START, SLOT_END);
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+
+        ResponseEntity<String> response =
+                restTemplate.postForEntity("/api/v1/order", new HttpEntity<>(dto, headers), String.class);
+
+        assertThat(response.getStatusCode().value()).isEqualTo(401);
+        assertThat(orderRepository.findByUserId(userId)).isEmpty();
+    }
+
     private @NonNull Long nextUserId() {
         return USER_SEQUENCE.incrementAndGet();
     }
 
     private <T> ResponseEntity<T> createOrder(Long userId, Class<T> responseType) {
-        OrderCreateDto dto = new OrderCreateDto(userId, PRICE, "integration test order",
+        OrderCreateDto dto = new OrderCreateDto(PRICE, "integration test order",
                 PRODUCT_ID, QUANTITY, DELIVERY_DATE, SLOT_START, SLOT_END);
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
+        headers.setBearerAuth(jwtTokenProvider.generateToken(
+                "user-" + userId + "@example.com", userId, List.of("USER")));
         return restTemplate.postForEntity("/api/v1/order", new HttpEntity<>(dto, headers), responseType);
     }
 

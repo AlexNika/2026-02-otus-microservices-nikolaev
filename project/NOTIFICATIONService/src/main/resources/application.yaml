@@ -24,7 +24,16 @@ spring:
 server:
   port: ${SERVER_PORT_NOTIFICATION_SERVICE:8003}
 
+springdoc:
+  paths-to-match: /api/v1/**
+
 management:
+  otlp:
+    tracing:
+      endpoint: ${MANAGEMENT_OTLP_TRACING_ENDPOINT:http://localhost:4318/v1/traces}
+  tracing:
+    sampling:
+      probability: ${MANAGEMENT_TRACING_SAMPLING_PROBABILITY:1.0}
   endpoint:
     health:
       probes:
@@ -33,23 +42,45 @@ management:
   endpoints:
     web:
       exposure:
-        include: health,info,rabbitmq
+        include: health,info,metrics,prometheus,rabbitmq
+  metrics:
+    distribution:
+      percentiles-histogram:
+        http.server.requests: true
+      percentiles:
+        http.server.requests: 0.5, 0.95, 0.99
+    tags:
+      application: ${spring.application.name}
+  prometheus:
+    metrics:
+      export:
+        enabled: true
 
 logging:
-  file:
-    name: ./logs/notification-service.log
   config: classpath:logback-spring.xml
   level:
     root: INFO
     ru.otus.hw: DEBUG
 
 app:
+  auth-service-url: ${AUTH_SERVICE_URL:http://localhost:8006}
+  security:
+    jwt-secret-key: ${JWT_SECRET_KEY:}
+  internal-api-key: ${INTERNAL_API_KEY}
   rabbitmq:
     exchange-name: notifications.events
     queue-name: notification.queue
     queue-type: classic
     routing-key: notification.event
     consumer-enabled: true
+    # Канал USER -> NOTIFICATION: репликация контактов пользователя (UserSyncEvent).
+    # notification.profile-sync.queue объявлена с x-dead-letter-exchange=user.sync.events и
+    # x-dead-letter-routing-key=user.profile.sync.dlq; ядовитые сообщения уходят в DLQ.
+    user-sync:
+      exchange-name: user.sync.events
+      queue-name: notification.profile-sync.queue
+      queue-type: classic
+      routing-key: user.profile.sync
 # Топология канала уведомлений (RabbitMQConfig / RabbitMQListenerConfig):
 #   notification.queue объявлена с x-dead-letter-exchange=notifications.events и
 #   x-dead-letter-routing-key=notification.event.dlq; consumer ретраит до 3 попыток

@@ -4,6 +4,7 @@ plugins {
 
 rootProject.name = 'project'
 include ':COMMONDomain'
+include ':AUTHService'
 include ':USERService'
 include ':BILLINGService'
 include ':ORDERService'

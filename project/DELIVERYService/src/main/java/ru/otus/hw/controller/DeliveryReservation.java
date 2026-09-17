@@ -5,6 +5,7 @@ import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
+import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -23,6 +24,7 @@ import java.time.LocalDate;
 
 @RequestMapping("/api/v1/delivery")
 @Tag(name = "Delivery Reservation API", description = "REST API for viewing delivery reservations")
+@SecurityRequirement(name = "basicAuth")
 public interface DeliveryReservation {
 
     /**
@@ -46,6 +48,10 @@ public interface DeliveryReservation {
     @ApiResponses(value = {
             @ApiResponse(responseCode = "200", description = "Delivery reservation found",
                     content = @Content(schema = @Schema(implementation = DeliveryReservationResponse.class))),
+            @ApiResponse(responseCode = "401", description = "Authentication required",
+                    content = @Content(schema = @Schema(implementation = ErrorDto.class))),
+            @ApiResponse(responseCode = "403", description = "Access denied (not the owner and not ADMIN)",
+                    content = @Content(schema = @Schema(implementation = ErrorDto.class))),
             @ApiResponse(responseCode = "404", description = "Delivery reservation not found for the order",
                     content = @Content(schema = @Schema(implementation = ErrorDto.class)))
     })
@@ -64,6 +70,10 @@ public interface DeliveryReservation {
     @ApiResponses(value = {
             @ApiResponse(responseCode = "200", description = "Delivery reservation found",
                     content = @Content(schema = @Schema(implementation = DeliveryReservationResponse.class))),
+            @ApiResponse(responseCode = "401", description = "Authentication required",
+                    content = @Content(schema = @Schema(implementation = ErrorDto.class))),
+            @ApiResponse(responseCode = "403", description = "Access denied (not the owner and not ADMIN)",
+                    content = @Content(schema = @Schema(implementation = ErrorDto.class))),
             @ApiResponse(responseCode = "404", description = "Delivery reservation not found",
                     content = @Content(schema = @Schema(implementation = ErrorDto.class)))
     })
@@ -86,7 +96,9 @@ public interface DeliveryReservation {
     @ApiResponses(value = {
             @ApiResponse(responseCode = "200", description = "List of delivery reservations retrieved"),
             @ApiResponse(responseCode = "400", description = "Invalid date format or missing date parameter",
-                    content = @Content(schema = @Schema(implementation = ErrorDto.class)))
+                    content = @Content(schema = @Schema(implementation = ErrorDto.class))),
+            @ApiResponse(responseCode = "401", description = "Authentication required"),
+            @ApiResponse(responseCode = "403", description = "Access denied (ADMIN role required)")
     })
     ResponseEntity<Page<DeliveryReservationResponse>> getReservations(
             @RequestParam("date")
